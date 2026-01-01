@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # API Keys (comma-separated for multiple)
+      - API_KEYS=${API_KEYS:-dev-key-12345,test-key-67890}
+      
+      # Rate Limiting
+      - RATE_LIMIT_REQUESTS=100
+      - RATE_LIMIT_WINDOW=60
+      - RATE_LIMIT_UPLOAD_REQUESTS=10
+      
+      # File Limits
+      - MAX_UPLOAD_SIZE_MB=500
+      
+      # FFMPEG
+      - FFMPEG_TIMEOUT=300
+      - FFMPEG_THREADS=0
+      
+      # CORS (use specific origins in production)
+      - CORS_ORIGINS=*
+      
+      # Documentation (disable in production if needed)
+      - ENABLE_DOCS=true
+      
+      # File cleanup
+      - FILE_RETENTION_SECONDS=3600
+    volumes:
+      # Persist output files (optional, for debugging)
+      - ffmpeg_output:/tmp/ffmpeg-api/output
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+volumes:
+  ffmpeg_output:
