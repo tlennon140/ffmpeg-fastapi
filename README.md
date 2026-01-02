@@ -214,6 +214,27 @@ All settings can be configured via environment variables:
 - Set `R2_PUBLIC_BASE_URL` to your public bucket domain or custom CDN domain.
 - If `R2_PUBLIC_BASE_URL` is not set, URLs default to `https://{bucket}.{account_id}.r2.cloudflarestorage.com/{key}`.
 
+### R2 Environment Variables
+
+Use these in `.env` or your deployment environment:
+
+```env
+# Required
+R2_ACCOUNT_ID=your-account-id
+R2_ACCESS_KEY_ID=your-access-key
+R2_SECRET_ACCESS_KEY=your-secret-key
+R2_BUCKET=your-bucket
+
+# Recommended for public URLs
+R2_PUBLIC_BASE_URL=https://your-public-domain
+
+# Optional
+R2_REGION=auto
+R2_ENDPOINT_URL=
+R2_KEY_PREFIX=
+R2_ALLOWED_EXTENSIONS=.mp4,.avi,.mov,.mkv,.webm,.flv,.wmv,.jpg,.jpeg,.png,.gif,.bmp,.webp,.tiff,.zip
+```
+
 ## Caption Styling Defaults
 
 By default, captions use a TikTok-style look:
