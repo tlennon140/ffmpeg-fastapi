@@ -21,7 +21,7 @@ from app.utils.files import cleanup_file, generate_temp_path
 logger = logging.getLogger(__name__)
 
 DEFAULT_CAPTION_FONT = "Arial"
-DEFAULT_CAPTION_FONT_RATIO = 0.035
+DEFAULT_CAPTION_FONT_RATIO = 0.0175
 DEFAULT_CAPTION_MIN_FONT_SIZE = 8
 DEFAULT_CAPTION_MAX_FONT_SIZE = 72
 DEFAULT_CAPTION_BORDER_RATIO = 0.12

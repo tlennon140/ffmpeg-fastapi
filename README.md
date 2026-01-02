@@ -219,7 +219,7 @@ All settings can be configured via environment variables:
 By default, captions use a TikTok-style look:
 
 - Arial font
-- Auto-sized text (about 3.5% of media height when `font_size` is omitted)
+- Auto-sized text (about 1.75% of media height when `font_size` is omitted)
 - White text with a black outline (block border)
 - No background box unless you pass `bg_color`
 
