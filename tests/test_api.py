@@ -164,17 +164,22 @@ class TestCaptionsEndpoints:
             _write_file(output_path, b"image")
             return FFMPEGResult(success=True, output_path=output_path)
 
+        async def fake_upload_file_path(*args, **kwargs):
+            return R2UploadResult(key="captions/image.png", url="https://cdn.example.com/captions/image.png")
+
         monkeypatch.setattr(ffmpeg_service, "add_text_to_image", fake_add_text_to_image)
+        monkeypatch.setattr(r2_service, "upload_file_path", fake_upload_file_path)
 
         response = client.post(
             "/api/v1/captions/image",
             headers=api_headers,
             files={"image": ("test.png", BytesIO(_png_bytes()), "image/png")},
-            data={"text": "Hello World"}
+            data={"text": "Hello World", "upload": "true", "upload_location": "captions"}
         )
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
+        assert data["r2_url"].startswith("https://")
         filename = data["filename"]
         output_path = Path(temp_dirs["output_dir"]) / filename
         assert output_path.exists()
@@ -192,7 +197,11 @@ class TestCaptionsEndpoints:
             _write_file(output_path, b"video")
             return FFMPEGResult(success=True, output_path=output_path)
 
+        async def fake_upload_file_path(*args, **kwargs):
+            return R2UploadResult(key="captions/video.mp4", url="https://cdn.example.com/captions/video.mp4")
+
         monkeypatch.setattr(ffmpeg_service, "add_captions_to_video", fake_add_captions_to_video)
+        monkeypatch.setattr(r2_service, "upload_file_path", fake_upload_file_path)
 
         captions_json = json.dumps([
             {"text": "Hello", "start": 0, "end": 1.5},
@@ -203,11 +212,12 @@ class TestCaptionsEndpoints:
             "/api/v1/captions/video",
             headers=api_headers,
             files={"video": ("test.mp4", BytesIO(b"video"), "video/mp4")},
-            data={"captions_json": captions_json}
+            data={"captions_json": captions_json, "upload": "true", "upload_location": "captions"}
         )
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
+        assert data["r2_url"].startswith("https://")
         filename = data["filename"]
         output_path = Path(temp_dirs["output_dir"]) / filename
         assert output_path.exists()
@@ -259,10 +269,14 @@ class TestVideoConcatEndpoints:
             _write_file(output_path, b"concat")
             return FFMPEGResult(success=True, output_path=output_path)
 
+        async def fake_upload_file_path(*args, **kwargs):
+            return R2UploadResult(key="concat/result.mp4", url="https://cdn.example.com/concat/result.mp4")
+
         monkeypatch.setattr(ffmpeg_service, "download_video_from_url", fake_download_video_from_url)
         monkeypatch.setattr(ffmpeg_service, "get_media_dimensions", fake_get_media_dimensions)
         monkeypatch.setattr(ffmpeg_service, "trim_video_segment", fake_trim_video_segment)
         monkeypatch.setattr(ffmpeg_service, "concat_segments", fake_concat_segments)
+        monkeypatch.setattr(r2_service, "upload_file_path", fake_upload_file_path)
 
         response = client.post(
             "/api/v1/videos/concat",
@@ -271,12 +285,15 @@ class TestVideoConcatEndpoints:
                 "segments": [
                     {"url": "https://example.com/video1.mp4", "start": 0, "end": 2.5},
                     {"url": "https://example.com/video2.mp4", "start": 1, "end": 3},
-                ]
+                ],
+                "upload": True,
+                "upload_location": "concat",
             }
         )
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
+        assert data["r2_url"].startswith("https://")
         output_path = Path(temp_dirs["output_dir"]) / data["filename"]
         assert output_path.exists()
 
@@ -371,18 +388,23 @@ class TestFramesEndpoints:
             _write_file(frame2, b"frame")
             return FFMPEGResult(success=True, output_paths=[frame1, frame2])
 
+        async def fake_upload_file_path(*args, **kwargs):
+            return R2UploadResult(key="frames/frames.zip", url="https://cdn.example.com/frames/frames.zip")
+
         monkeypatch.setattr(ffmpeg_service, "extract_frames", fake_extract_frames)
+        monkeypatch.setattr(r2_service, "upload_file_path", fake_upload_file_path)
 
         response = client.post(
             "/api/v1/frames/extract",
             headers=api_headers,
             files={"video": ("test.mp4", BytesIO(b"video"), "video/mp4")},
-            data={"fps": "1", "format": "jpg"}
+            data={"fps": "1", "format": "jpg", "upload": "true", "upload_location": "frames"}
         )
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
         assert data["frame_count"] == 2
+        assert data["r2_url"].startswith("https://")
         output_path = Path(temp_dirs["output_dir"]) / data["filename"]
         assert output_path.exists()
 
@@ -399,18 +421,23 @@ class TestFramesEndpoints:
             _write_file(output_path, b"frame")
             return FFMPEGResult(success=True, output_path=output_path, duration=12.3)
 
+        async def fake_upload_file_path(*args, **kwargs):
+            return R2UploadResult(key="frames/last.jpg", url="https://cdn.example.com/frames/last.jpg")
+
         monkeypatch.setattr(ffmpeg_service, "extract_last_frame", fake_extract_last_frame)
+        monkeypatch.setattr(r2_service, "upload_file_path", fake_upload_file_path)
 
         response = client.post(
             "/api/v1/frames/last",
             headers=api_headers,
             files={"video": ("test.mp4", BytesIO(b"video"), "video/mp4")},
-            data={"format": "jpg"}
+            data={"format": "jpg", "upload": "true", "upload_location": "frames"}
         )
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
         assert data["video_duration"] == pytest.approx(12.3)
+        assert data["r2_url"].startswith("https://")
         output_path = Path(temp_dirs["output_dir"]) / data["filename"]
         assert output_path.exists()
 

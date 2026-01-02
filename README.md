@@ -144,6 +144,24 @@ curl -X POST "http://localhost:8000/api/v1/storage/r2/upload/output/captioned_ab
   -H "X-API-Key: your-api-key"
 ```
 
+### Auto-Upload Results to R2
+
+Processing endpoints accept these optional parameters:
+- `upload` (boolean): Upload the generated output to R2.
+- `upload_location`: Optional key prefix within the bucket.
+Responses include `r2_key` and `r2_url` when `upload=true`.
+
+Example (video captions):
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/captions/video" \
+  -H "X-API-Key: your-api-key" \
+  -F "video=@video.mp4" \
+  -F 'captions_json=[{"text":"Hello","start":0,"end":2}]' \
+  -F "upload=true" \
+  -F "upload_location=captions"
+```
+
 ### Extract Frames (2 per second)
 
 ```bash

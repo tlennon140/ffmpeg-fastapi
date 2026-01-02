@@ -5,7 +5,7 @@ Frame extraction endpoints for videos.
 import logging
 import os
 import zipfile
-from typing import Literal
+from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.services.ffmpeg_service import ffmpeg_service
+from app.services.r2_service import r2_service
 from app.utils.auth import verify_api_key
 from app.utils.files import (
     cleanup_file,
@@ -32,6 +33,8 @@ class FrameExtractionResponse(BaseModel):
     frame_count: int
     filename: str
     message: str
+    r2_key: Optional[str] = None
+    r2_url: Optional[str] = None
 
 
 class LastFrameResponse(BaseModel):
@@ -40,6 +43,8 @@ class LastFrameResponse(BaseModel):
     filename: str
     video_duration: float
     message: str
+    r2_key: Optional[str] = None
+    r2_url: Optional[str] = None
 
 
 @router.post(
@@ -65,6 +70,11 @@ async def extract_frames(
         ge=1,
         le=31,
         description="JPEG quality (1=best, 31=worst). Only applies to JPG format."
+    ),
+    upload: bool = Form(default=False, description="Upload result to R2"),
+    upload_location: Optional[str] = Form(
+        default=None,
+        description="Optional key prefix within the bucket"
     ),
     api_key: str = Depends(verify_api_key)
 ):
@@ -141,11 +151,24 @@ async def extract_frames(
                 arcname = os.path.basename(frame_path)
                 zf.write(frame_path, arcname)
         
+        r2_key = None
+        r2_url = None
+        if upload:
+            upload_result = await r2_service.upload_file_path(
+                file_path=zip_path,
+                filename=get_output_filename(zip_path),
+                key_prefix=upload_location or ""
+            )
+            r2_key = upload_result.key
+            r2_url = upload_result.url
+
         return FrameExtractionResponse(
             success=True,
             frame_count=len(extracted_frames),
             filename=get_output_filename(zip_path),
-            message=f"Extracted {len(extracted_frames)} frames at {fps} fps"
+            message=f"Extracted {len(extracted_frames)} frames at {fps} fps",
+            r2_key=r2_key,
+            r2_url=r2_url
         )
         
     finally:
@@ -177,6 +200,11 @@ async def extract_last_frame(
         ge=1,
         le=31,
         description="JPEG quality (1=best, 31=worst). Only applies to JPG format."
+    ),
+    upload: bool = Form(default=False, description="Upload result to R2"),
+    upload_location: Optional[str] = Form(
+        default=None,
+        description="Optional key prefix within the bucket"
     ),
     api_key: str = Depends(verify_api_key)
 ):
@@ -220,11 +248,24 @@ async def extract_last_frame(
                 detail=f"Failed to extract last frame: {result.error}"
             )
         
+        r2_key = None
+        r2_url = None
+        if upload:
+            upload_result = await r2_service.upload_file_path(
+                file_path=output_path,
+                filename=get_output_filename(output_path),
+                key_prefix=upload_location or ""
+            )
+            r2_key = upload_result.key
+            r2_url = upload_result.url
+
         return LastFrameResponse(
             success=True,
             filename=get_output_filename(output_path),
             video_duration=result.duration or 0,
-            message="Last frame extracted successfully"
+            message="Last frame extracted successfully",
+            r2_key=r2_key,
+            r2_url=r2_url
         )
         
     finally:

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.services.ffmpeg_service import ffmpeg_service
+from app.services.r2_service import r2_service
 from app.utils.auth import verify_api_key
 from app.utils.files import (
     cleanup_file,
@@ -78,6 +79,8 @@ class CaptionResponse(BaseModel):
     success: bool
     filename: str
     message: str
+    r2_key: Optional[str] = None
+    r2_url: Optional[str] = None
 
 
 @router.post(
@@ -96,6 +99,11 @@ async def add_video_captions(
     font_color: str = Form(default="white"),
     bg_color: Optional[str] = Form(default=None),
     position: str = Form(default="bottom"),
+    upload: bool = Form(default=False, description="Upload result to R2"),
+    upload_location: Optional[str] = Form(
+        default=None,
+        description="Optional key prefix within the bucket"
+    ),
     api_key: str = Depends(verify_api_key)
 ):
     """
@@ -164,10 +172,23 @@ async def add_video_captions(
                 detail=f"Failed to add captions: {result.error}"
             )
         
+        r2_key = None
+        r2_url = None
+        if upload:
+            upload_result = await r2_service.upload_file_path(
+                file_path=output_path,
+                filename=get_output_filename(output_path),
+                key_prefix=upload_location or ""
+            )
+            r2_key = upload_result.key
+            r2_url = upload_result.url
+
         return CaptionResponse(
             success=True,
             filename=get_output_filename(output_path),
-            message="Video captioned successfully"
+            message="Video captioned successfully",
+            r2_key=r2_key,
+            r2_url=r2_url
         )
         
     finally:
@@ -190,6 +211,11 @@ async def add_image_caption(
     position: str = Form(default="bottom"),
     x_offset: int = Form(default=0),
     y_offset: int = Form(default=0),
+    upload: bool = Form(default=False, description="Upload result to R2"),
+    upload_location: Optional[str] = Form(
+        default=None,
+        description="Optional key prefix within the bucket"
+    ),
     api_key: str = Depends(verify_api_key)
 ):
     """
@@ -240,10 +266,23 @@ async def add_image_caption(
                 detail=f"Failed to add caption: {result.error}"
             )
         
+        r2_key = None
+        r2_url = None
+        if upload:
+            upload_result = await r2_service.upload_file_path(
+                file_path=output_path,
+                filename=get_output_filename(output_path),
+                key_prefix=upload_location or ""
+            )
+            r2_key = upload_result.key
+            r2_url = upload_result.url
+
         return CaptionResponse(
             success=True,
             filename=get_output_filename(output_path),
-            message="Image captioned successfully"
+            message="Image captioned successfully",
+            r2_key=r2_key,
+            r2_url=r2_url
         )
         
     finally:
