@@ -373,6 +373,114 @@ class TestVideoTransformEndpoints:
         assert data["success"] is True
         output_path = Path(temp_dirs["output_dir"]) / data["filename"]
         assert output_path.exists()
+
+
+class TestVideoOverlayEndpoints:
+    """Tests for video watermark and append endpoints."""
+    
+    def test_watermark_invalid_position(self, client, api_headers):
+        """Test watermark with invalid position."""
+        response = client.post(
+            "/api/v1/videos/watermark",
+            headers=api_headers,
+            files={
+                "video": ("test.mp4", BytesIO(b"video"), "video/mp4"),
+                "logo": ("logo.png", BytesIO(_png_bytes()), "image/png"),
+            },
+            data={"position": "left"}
+        )
+        assert response.status_code == 400
+    
+    def test_watermark_success(self, client, api_headers, monkeypatch, temp_dirs):
+        """Test watermark success path."""
+        async def fake_add_watermark_to_video(*args, **kwargs):
+            output_path = kwargs["output_path"]
+            _write_file(output_path, b"video")
+            return FFMPEGResult(success=True, output_path=output_path)
+
+        monkeypatch.setattr(ffmpeg_service, "add_watermark_to_video", fake_add_watermark_to_video)
+
+        response = client.post(
+            "/api/v1/videos/watermark",
+            headers=api_headers,
+            files={
+                "video": ("test.mp4", BytesIO(b"video"), "video/mp4"),
+                "logo": ("logo.png", BytesIO(_png_bytes()), "image/png"),
+            },
+            data={"position": "top-right"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        output_path = Path(temp_dirs["output_dir"]) / data["filename"]
+        assert output_path.exists()
+    
+    def test_append_missing_intro_outro(self, client, api_headers):
+        """Test append without intro or outro."""
+        response = client.post(
+            "/api/v1/videos/append",
+            headers=api_headers,
+            files={"video": ("test.mp4", BytesIO(b"video"), "video/mp4")}
+        )
+        assert response.status_code == 400
+    
+    def test_append_success(self, client, api_headers, monkeypatch, temp_dirs):
+        """Test append success path."""
+        async def fake_append_intro_outro(*args, **kwargs):
+            output_path = kwargs["output_path"]
+            _write_file(output_path, b"video")
+            return FFMPEGResult(success=True, output_path=output_path)
+
+        monkeypatch.setattr(ffmpeg_service, "append_intro_outro", fake_append_intro_outro)
+
+        response = client.post(
+            "/api/v1/videos/append",
+            headers=api_headers,
+            files={
+                "video": ("test.mp4", BytesIO(b"video"), "video/mp4"),
+                "intro": ("intro.mp4", BytesIO(b"intro"), "video/mp4"),
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        output_path = Path(temp_dirs["output_dir"]) / data["filename"]
+        assert output_path.exists()
+
+
+class TestAudioExtractEndpoints:
+    """Tests for audio extraction endpoint."""
+    
+    def test_extract_audio_invalid_format(self, client, api_headers):
+        """Test audio extraction with invalid format."""
+        response = client.post(
+            "/api/v1/videos/audio/extract",
+            headers=api_headers,
+            files={"video": ("test.mp4", BytesIO(b"video"), "video/mp4")},
+            data={"format": "wma"}
+        )
+        assert response.status_code == 400
+    
+    def test_extract_audio_success(self, client, api_headers, monkeypatch, temp_dirs):
+        """Test audio extraction success path."""
+        async def fake_extract_audio_from_video(*args, **kwargs):
+            output_path = kwargs["output_path"]
+            _write_file(output_path, b"audio")
+            return FFMPEGResult(success=True, output_path=output_path)
+
+        monkeypatch.setattr(ffmpeg_service, "extract_audio_from_video", fake_extract_audio_from_video)
+
+        response = client.post(
+            "/api/v1/videos/audio/extract",
+            headers=api_headers,
+            files={"video": ("test.mp4", BytesIO(b"video"), "video/mp4")},
+            data={"format": "mp3"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        output_path = Path(temp_dirs["output_dir"]) / data["filename"]
+        assert output_path.exists()
     
     def test_crop_vertical_success(self, client, api_headers, monkeypatch, temp_dirs):
         """Test vertical crop success path."""

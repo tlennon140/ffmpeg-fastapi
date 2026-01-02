@@ -822,6 +822,226 @@ class FFMPEGService:
         return FFMPEGResult(success=False, error=stderr)
 
     @staticmethod
+    async def add_watermark_to_video(
+        video_path: str,
+        logo_path: str,
+        output_path: str,
+        position: str = "top-right",
+        scale_ratio: float = 0.18,
+        opacity: float = 0.9,
+        margin_ratio: float = 0.04
+    ) -> FFMPEGResult:
+        """
+        Overlay a logo watermark on a video.
+        
+        Args:
+            video_path: Path to input video
+            logo_path: Path to logo image
+            output_path: Path for output video
+            position: Overlay position
+            scale_ratio: Logo width ratio relative to video width
+            opacity: Logo opacity (0-1)
+            margin_ratio: Margin ratio relative to video width/height
+            
+        Returns:
+            FFMPEGResult with operation status
+        """
+        width, height = await FFMPEGService.get_media_dimensions(video_path)
+        margin_x = int(round(width * margin_ratio))
+        margin_y = int(round(height * margin_ratio))
+        
+        position_map = {
+            "top-left": (f"{margin_x}", f"{margin_y}"),
+            "top-right": (f"w-overlay_w-{margin_x}", f"{margin_y}"),
+            "bottom-left": (f"{margin_x}", f"h-overlay_h-{margin_y}"),
+            "bottom-right": (f"w-overlay_w-{margin_x}", f"h-overlay_h-{margin_y}"),
+            "center": ("(w-overlay_w)/2", "(h-overlay_h)/2"),
+        }
+        x_expr, y_expr = position_map.get(position, position_map["top-right"])
+        
+        scale_ratio = max(0.05, min(scale_ratio, 0.5))
+        opacity = max(0.0, min(opacity, 1.0))
+        
+        filter_complex = (
+            f"[1:v][0:v]scale2ref=w=main_w*{scale_ratio}:h=-1[logo][base];"
+            f"[logo]format=rgba,colorchannelmixer=aa={opacity}[logo_alpha];"
+            f"[base][logo_alpha]overlay={x_expr}:{y_expr}"
+        )
+        
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", video_path,
+            "-i", logo_path,
+            "-filter_complex", filter_complex,
+            "-map", "0:v:0",
+            "-map", "0:a?",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+        ]
+        
+        if settings.FFMPEG_THREADS > 0:
+            cmd.extend(["-threads", str(settings.FFMPEG_THREADS)])
+        
+        cmd.append(output_path)
+        
+        success, stdout, stderr = await FFMPEGService.run_command(cmd)
+        
+        if success and os.path.exists(output_path):
+            return FFMPEGResult(success=True, output_path=output_path)
+        return FFMPEGResult(success=False, error=stderr)
+
+    @staticmethod
+    async def _normalize_video_clip(
+        input_path: str,
+        output_path: str,
+        target_width: int,
+        target_height: int
+    ) -> FFMPEGResult:
+        """Normalize a video clip to a target size with audio."""
+        has_audio = await FFMPEGService._has_audio_stream(input_path)
+        vf_filter = (
+            f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
+            f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
+            "setsar=1"
+        )
+        
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", input_path,
+        ]
+        
+        if not has_audio:
+            cmd.extend([
+                "-f", "lavfi",
+                "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+            ])
+        
+        cmd.extend(["-vf", vf_filter, "-map", "0:v:0"])
+        if has_audio:
+            cmd.extend(["-map", "0:a:0"])
+        else:
+            cmd.extend(["-map", "1:a:0", "-shortest"])
+        
+        cmd.extend([
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-ac", "2",
+            "-ar", "44100",
+            "-movflags", "+faststart",
+        ])
+        
+        if settings.FFMPEG_THREADS > 0:
+            cmd.extend(["-threads", str(settings.FFMPEG_THREADS)])
+        
+        cmd.append(output_path)
+        
+        success, stdout, stderr = await FFMPEGService.run_command(cmd)
+        
+        if success and os.path.exists(output_path):
+            return FFMPEGResult(success=True, output_path=output_path)
+        return FFMPEGResult(success=False, error=stderr)
+
+    @staticmethod
+    async def append_intro_outro(
+        video_path: str,
+        output_path: str,
+        intro_path: Optional[str] = None,
+        outro_path: Optional[str] = None
+    ) -> FFMPEGResult:
+        """
+        Append intro/outro clips to a video.
+        
+        Args:
+            video_path: Path to main video
+            output_path: Path for output video
+            intro_path: Optional intro video path
+            outro_path: Optional outro video path
+            
+        Returns:
+            FFMPEGResult with operation status
+        """
+        inputs = [p for p in [intro_path, video_path, outro_path] if p]
+        if len(inputs) == 1:
+            return FFMPEGResult(success=False, error="No intro or outro provided")
+        
+        width, height = await FFMPEGService.get_media_dimensions(video_path)
+        normalized_paths: List[str] = []
+        
+        try:
+            for path in inputs:
+                normalized_path = generate_temp_path("append_", ".mp4")
+                normalized_paths.append(normalized_path)
+                result = await FFMPEGService._normalize_video_clip(
+                    input_path=path,
+                    output_path=normalized_path,
+                    target_width=width,
+                    target_height=height
+                )
+                if not result.success:
+                    return FFMPEGResult(success=False, error=result.error)
+            
+            concat_result = await FFMPEGService.concat_segments(normalized_paths, output_path)
+            if concat_result.success:
+                return concat_result
+            return FFMPEGResult(success=False, error=concat_result.error)
+        
+        finally:
+            for path in normalized_paths:
+                cleanup_file(path)
+
+    @staticmethod
+    async def extract_audio_from_video(
+        video_path: str,
+        output_path: str,
+        format: str = "mp3"
+    ) -> FFMPEGResult:
+        """
+        Extract audio from a video.
+        
+        Args:
+            video_path: Path to input video
+            output_path: Path for output audio
+            format: Output audio format
+            
+        Returns:
+            FFMPEGResult with operation status
+        """
+        codecs = {
+            "mp3": ("libmp3lame", ["-q:a", "2"]),
+            "wav": ("pcm_s16le", []),
+            "aac": ("aac", []),
+            "m4a": ("aac", []),
+            "ogg": ("libvorbis", []),
+            "flac": ("flac", []),
+        }
+        codec, extra_args = codecs.get(format, (None, None))
+        if codec is None:
+            return FFMPEGResult(success=False, error="Unsupported audio format")
+        
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", video_path,
+            "-vn",
+            "-acodec", codec,
+        ]
+        cmd.extend(extra_args)
+        cmd.append(output_path)
+        
+        success, stdout, stderr = await FFMPEGService.run_command(cmd)
+        
+        if success and os.path.exists(output_path):
+            return FFMPEGResult(success=True, output_path=output_path)
+        return FFMPEGResult(success=False, error=stderr)
+
+    @staticmethod
     async def convert_aspect_ratio(
         video_path: str,
         output_path: str,

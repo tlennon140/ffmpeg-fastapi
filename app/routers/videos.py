@@ -76,6 +76,15 @@ class VideoTransformResponse(BaseModel):
     r2_url: Optional[str] = None
 
 
+class VideoExtractAudioResponse(BaseModel):
+    """Response model for audio extraction."""
+    success: bool
+    filename: str
+    message: str
+    r2_key: Optional[str] = None
+    r2_url: Optional[str] = None
+
+
 @router.post(
     "/videos/concat",
     response_model=VideoConcatResponse,
@@ -353,6 +362,264 @@ async def crop_vertical_video(
             success=True,
             filename=get_output_filename(output_path),
             message="Video cropped successfully",
+            r2_key=r2_key,
+            r2_url=r2_url
+        )
+    
+    finally:
+        cleanup_files(*(path for path in [video_path] if path))
+
+
+@router.post(
+    "/videos/watermark",
+    response_model=VideoTransformResponse,
+    summary="Add watermark/logo overlay",
+    description="Overlay a logo watermark onto a video."
+)
+async def add_watermark(
+    video: UploadFile = File(..., description="Video file"),
+    logo: UploadFile = File(..., description="Logo image file"),
+    position: str = Form(default="top-right", description="Overlay position"),
+    scale_ratio: float = Form(default=0.18, description="Logo width ratio relative to video width"),
+    opacity: float = Form(default=0.9, description="Logo opacity (0-1)"),
+    margin_ratio: float = Form(default=0.04, description="Margin ratio"),
+    upload: bool = Form(default=False, description="Upload result to R2"),
+    upload_location: Optional[str] = Form(
+        default=None,
+        description="Optional key prefix within the bucket"
+    ),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Overlay a watermark logo on a video.
+    """
+    positions = {"top-left", "top-right", "bottom-left", "bottom-right", "center"}
+    if position not in positions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Position must be one of: top-left, top-right, bottom-left, bottom-right, center"
+        )
+    if not (0 <= opacity <= 1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Opacity must be between 0 and 1"
+        )
+    if not (0.01 <= scale_ratio <= 0.5):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Scale ratio must be between 0.01 and 0.5"
+        )
+
+    video_path = None
+    logo_path = None
+    output_path = None
+    
+    try:
+        video_path, video_ext = await save_upload_file(
+            video,
+            settings.allowed_video_extensions_list,
+            prefix="watermark_video_"
+        )
+        logo_path, _ = await save_upload_file(
+            logo,
+            settings.allowed_image_extensions_list,
+            prefix="watermark_logo_"
+        )
+        output_path = generate_output_path("watermark_", video_ext)
+        
+        result = await ffmpeg_service.add_watermark_to_video(
+            video_path=video_path,
+            logo_path=logo_path,
+            output_path=output_path,
+            position=position,
+            scale_ratio=scale_ratio,
+            opacity=opacity,
+            margin_ratio=margin_ratio
+        )
+        
+        if not result.success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to add watermark: {result.error}"
+            )
+        
+        r2_key = None
+        r2_url = None
+        if upload:
+            upload_result = await r2_service.upload_file_path(
+                file_path=output_path,
+                filename=get_output_filename(output_path),
+                key_prefix=upload_location or ""
+            )
+            r2_key = upload_result.key
+            r2_url = upload_result.url
+        
+        return VideoTransformResponse(
+            success=True,
+            filename=get_output_filename(output_path),
+            message="Watermark added successfully",
+            r2_key=r2_key,
+            r2_url=r2_url
+        )
+    
+    finally:
+        cleanup_files(*(path for path in [video_path, logo_path] if path))
+
+
+@router.post(
+    "/videos/append",
+    response_model=VideoTransformResponse,
+    summary="Append intro/outro clips",
+    description="Append intro and/or outro clips to a video."
+)
+async def append_intro_outro(
+    video: UploadFile = File(..., description="Main video file"),
+    intro: Optional[UploadFile] = File(default=None, description="Intro video file"),
+    outro: Optional[UploadFile] = File(default=None, description="Outro video file"),
+    upload: bool = Form(default=False, description="Upload result to R2"),
+    upload_location: Optional[str] = Form(
+        default=None,
+        description="Optional key prefix within the bucket"
+    ),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Append intro and/or outro to a video.
+    """
+    if intro is None and outro is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide at least an intro or outro file"
+        )
+    
+    video_path = None
+    intro_path = None
+    outro_path = None
+    output_path = None
+    
+    try:
+        video_path, video_ext = await save_upload_file(
+            video,
+            settings.allowed_video_extensions_list,
+            prefix="append_main_"
+        )
+        if intro is not None:
+            intro_path, _ = await save_upload_file(
+                intro,
+                settings.allowed_video_extensions_list,
+                prefix="append_intro_"
+            )
+        if outro is not None:
+            outro_path, _ = await save_upload_file(
+                outro,
+                settings.allowed_video_extensions_list,
+                prefix="append_outro_"
+            )
+        
+        output_path = generate_output_path("append_", video_ext)
+        
+        result = await ffmpeg_service.append_intro_outro(
+            video_path=video_path,
+            intro_path=intro_path,
+            outro_path=outro_path,
+            output_path=output_path
+        )
+        
+        if not result.success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to append clips: {result.error}"
+            )
+        
+        r2_key = None
+        r2_url = None
+        if upload:
+            upload_result = await r2_service.upload_file_path(
+                file_path=output_path,
+                filename=get_output_filename(output_path),
+                key_prefix=upload_location or ""
+            )
+            r2_key = upload_result.key
+            r2_url = upload_result.url
+        
+        return VideoTransformResponse(
+            success=True,
+            filename=get_output_filename(output_path),
+            message="Video appended successfully",
+            r2_key=r2_key,
+            r2_url=r2_url
+        )
+    
+    finally:
+        cleanup_files(*(path for path in [video_path, intro_path, outro_path] if path))
+
+
+@router.post(
+    "/videos/audio/extract",
+    response_model=VideoExtractAudioResponse,
+    summary="Extract audio from a video",
+    description="Extract audio from a video into a standalone audio file."
+)
+async def extract_audio(
+    video: UploadFile = File(..., description="Video file"),
+    format: str = Form(default="mp3", description="Output audio format"),
+    upload: bool = Form(default=False, description="Upload result to R2"),
+    upload_location: Optional[str] = Form(
+        default=None,
+        description="Optional key prefix within the bucket"
+    ),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Extract audio from a video.
+    """
+    format = format.lower()
+    allowed_formats = {"mp3", "wav", "aac", "m4a", "ogg", "flac"}
+    if format not in allowed_formats:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format must be one of: mp3, wav, aac, m4a, ogg, flac"
+        )
+    
+    video_path = None
+    output_path = None
+    
+    try:
+        video_path, _ = await save_upload_file(
+            video,
+            settings.allowed_video_extensions_list,
+            prefix="audio_extract_"
+        )
+        
+        output_path = generate_output_path("audio_extract_", f".{format}")
+        
+        result = await ffmpeg_service.extract_audio_from_video(
+            video_path=video_path,
+            output_path=output_path,
+            format=format
+        )
+        
+        if not result.success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to extract audio: {result.error}"
+            )
+        
+        r2_key = None
+        r2_url = None
+        if upload:
+            upload_result = await r2_service.upload_file_path(
+                file_path=output_path,
+                filename=get_output_filename(output_path),
+                key_prefix=upload_location or ""
+            )
+            r2_key = upload_result.key
+            r2_url = upload_result.url
+        
+        return VideoExtractAudioResponse(
+            success=True,
+            filename=get_output_filename(output_path),
+            message="Audio extracted successfully",
             r2_key=r2_key,
             r2_url=r2_url
         )

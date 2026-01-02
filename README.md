@@ -87,6 +87,9 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `/api/v1/videos/audio` | POST | Yes | Add or replace audio on a video |
 | `/api/v1/videos/aspect` | POST | Yes | Convert video aspect ratio (pad) |
 | `/api/v1/videos/crop/vertical` | POST | Yes | Smart crop for vertical video |
+| `/api/v1/videos/watermark` | POST | Yes | Add watermark/logo overlay |
+| `/api/v1/videos/append` | POST | Yes | Append intro/outro to video |
+| `/api/v1/videos/audio/extract` | POST | Yes | Extract audio from video |
 
 ### Storage
 
@@ -155,6 +158,36 @@ curl -X POST "http://localhost:8000/api/v1/videos/audio" \
   -F "video=@video.mp4" \
   -F "audio=@track.mp3" \
   -F "replace_audio=true"
+```
+
+### Add Watermark
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/videos/watermark" \
+  -H "X-API-Key: your-api-key" \
+  -F "video=@video.mp4" \
+  -F "logo=@logo.png" \
+  -F "position=top-right" \
+  -F "opacity=0.9"
+```
+
+### Append Intro/Outro
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/videos/append" \
+  -H "X-API-Key: your-api-key" \
+  -F "video=@video.mp4" \
+  -F "intro=@intro.mp4" \
+  -F "outro=@outro.mp4"
+```
+
+### Extract Audio
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/videos/audio/extract" \
+  -H "X-API-Key: your-api-key" \
+  -F "video=@video.mp4" \
+  -F "format=mp3"
 ```
 
 ### Convert Aspect Ratio
