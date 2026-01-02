@@ -97,7 +97,14 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
     EXEMPT_PATHS = {"/", "/health", "/health/ready", "/docs", "/redoc", "/openapi.json"}
     
     # Paths with stricter upload limits
-    UPLOAD_PATHS = {"/api/v1/captions/video", "/api/v1/captions/image", "/api/v1/frames/extract", "/api/v1/frames/last"}
+    UPLOAD_PATHS = {
+        "/api/v1/captions/video",
+        "/api/v1/captions/image",
+        "/api/v1/frames/extract",
+        "/api/v1/frames/last",
+        "/api/v1/storage/r2/upload",
+    }
+    UPLOAD_PATH_PREFIXES = {"/api/v1/storage/r2/upload/output/"}
     
     async def dispatch(self, request: Request, call_next) -> Response:
         """Process request through rate limiter."""
@@ -111,7 +118,10 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         api_key = request.headers.get("X-API-Key", "anonymous")
         
         # Determine rate limit based on path
-        if path in self.UPLOAD_PATHS and request.method == "POST":
+        is_upload = path in self.UPLOAD_PATHS or any(
+            path.startswith(prefix) for prefix in self.UPLOAD_PATH_PREFIXES
+        )
+        if is_upload and request.method == "POST":
             max_requests = settings.RATE_LIMIT_UPLOAD_REQUESTS
             rate_key = f"upload:{api_key}"
         else:

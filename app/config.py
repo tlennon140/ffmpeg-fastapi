@@ -5,7 +5,7 @@ All configuration can be overridden via environment variables.
 """
 
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 import os
 
 from pydantic_settings import BaseSettings
@@ -80,6 +80,48 @@ class Settings(BaseSettings):
         default=True,
         description="Enable Swagger/ReDoc documentation"
     )
+
+    # R2 Storage
+    R2_ACCOUNT_ID: Optional[str] = Field(
+        default=None,
+        description="Cloudflare R2 account ID"
+    )
+    R2_ACCESS_KEY_ID: Optional[str] = Field(
+        default=None,
+        description="Cloudflare R2 access key ID"
+    )
+    R2_SECRET_ACCESS_KEY: Optional[str] = Field(
+        default=None,
+        description="Cloudflare R2 secret access key"
+    )
+    R2_BUCKET: Optional[str] = Field(
+        default=None,
+        description="Cloudflare R2 bucket name"
+    )
+    R2_REGION: str = Field(
+        default="auto",
+        description="Cloudflare R2 region (use 'auto')"
+    )
+    R2_ENDPOINT_URL: Optional[str] = Field(
+        default=None,
+        description="Optional custom R2 endpoint URL"
+    )
+    R2_PUBLIC_BASE_URL: Optional[str] = Field(
+        default=None,
+        description="Public base URL for R2 objects (e.g. https://cdn.example.com)"
+    )
+    R2_KEY_PREFIX: str = Field(
+        default="",
+        description="Optional prefix for R2 object keys"
+    )
+    R2_ALLOWED_EXTENSIONS: str = Field(
+        default=(
+            ".mp4,.avi,.mov,.mkv,.webm,.flv,.wmv,"
+            ".jpg,.jpeg,.png,.gif,.bmp,.webp,.tiff,"
+            ".zip"
+        ),
+        description="Comma-separated allowed extensions for R2 uploads"
+    )
     
     # Cleanup
     FILE_RETENTION_SECONDS: int = Field(
@@ -113,6 +155,11 @@ class Settings(BaseSettings):
         if self.CORS_ORIGINS == "*":
             return ["*"]
         return [o.strip() for o in self.CORS_ORIGINS.split(",")]
+
+    @property
+    def r2_allowed_extensions_list(self) -> List[str]:
+        """Parse R2 allowed extensions into a list."""
+        return [e.strip().lower() for e in self.R2_ALLOWED_EXTENSIONS.split(",") if e.strip()]
     
     @property
     def max_upload_size_bytes(self) -> int:

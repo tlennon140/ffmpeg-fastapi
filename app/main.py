@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.middleware.rate_limiter import RateLimiterMiddleware
-from app.routers import captions, frames, health
+from app.routers import captions, frames, health, storage, videos
 from app.config import settings
 
 # Configure logging
@@ -60,6 +60,8 @@ app = FastAPI(
 This API provides endpoints for:
 - **Captions**: Add captions/subtitles to videos and text overlays to images
 - **Frames**: Extract frames from videos at regular intervals or specific positions
+- **Videos**: Concatenate video segments from URLs
+- **Storage**: Upload files or outputs to Cloudflare R2
 
 ### Authentication
 All endpoints (except health checks) require an API key passed via the `X-API-Key` header.
@@ -90,6 +92,8 @@ app.add_middleware(RateLimiterMiddleware)
 app.include_router(health.router, tags=["Health"])
 app.include_router(captions.router, prefix="/api/v1", tags=["Captions"])
 app.include_router(frames.router, prefix="/api/v1", tags=["Frames"])
+app.include_router(videos.router, prefix="/api/v1", tags=["Videos"])
+app.include_router(storage.router, prefix="/api/v1", tags=["Storage"])
 
 
 @app.get("/", include_in_schema=False)

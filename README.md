@@ -79,6 +79,19 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `/api/v1/frames/last` | POST | Yes | Extract last frame |
 | `/api/v1/frames/download/{filename}` | GET | Yes | Download extracted frames |
 
+### Videos
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/api/v1/videos/concat` | POST | Yes | Concatenate video segments from URLs |
+
+### Storage
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/api/v1/storage/r2/upload` | POST | Yes | Upload file to R2 |
+| `/api/v1/storage/r2/upload/output/{filename}` | POST | Yes | Upload output file to R2 |
+
 ## Usage Examples
 
 ### Add Captions to Video
@@ -88,7 +101,6 @@ curl -X POST "http://localhost:8000/api/v1/captions/video" \
   -H "X-API-Key: your-api-key" \
   -F "video=@video.mp4" \
   -F 'captions_json=[{"text":"Hello World","start":0,"end":3},{"text":"Goodbye","start":4,"end":6}]' \
-  -F "font_size=32" \
   -F "position=bottom"
 ```
 
@@ -99,8 +111,37 @@ curl -X POST "http://localhost:8000/api/v1/captions/image" \
   -H "X-API-Key: your-api-key" \
   -F "image=@image.jpg" \
   -F "text=Hello World" \
-  -F "font_size=48" \
   -F "position=center"
+```
+
+### Concatenate Videos
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/videos/concat" \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "segments": [
+      {"url": "https://example.com/video1.mp4", "start": 0, "end": 4.5},
+      {"url": "https://example.com/video2.mp4", "start": 2, "end": 8}
+    ]
+  }'
+```
+
+### Upload to R2
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/storage/r2/upload" \
+  -H "X-API-Key: your-api-key" \
+  -F "file=@video.mp4" \
+  -F "key_prefix=uploads"
+```
+
+### Upload Output to R2
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/storage/r2/upload/output/captioned_abc123.mp4?key_prefix=outputs" \
+  -H "X-API-Key: your-api-key"
 ```
 
 ### Extract Frames (2 per second)
@@ -130,6 +171,19 @@ curl -X GET "http://localhost:8000/api/v1/captions/download/captioned_abc123.mp4
   -o output.mp4
 ```
 
+## Testing
+
+Run the test suite:
+
+```bash
+pytest
+```
+
+Notes:
+- Route tests cover all endpoints and use mocks to avoid calling FFMPEG or external URLs.
+- Tests isolate input/output into temporary directories.
+- R2 tests mock uploads; no network access required.
+
 ## Configuration
 
 All settings can be configured via environment variables:
@@ -144,6 +198,30 @@ All settings can be configured via environment variables:
 | `FFMPEG_TIMEOUT` | `300` | Operation timeout (seconds) |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `ENABLE_DOCS` | `true` | Enable Swagger/ReDoc |
+| `R2_ACCOUNT_ID` | `None` | Cloudflare R2 account ID |
+| `R2_ACCESS_KEY_ID` | `None` | Cloudflare R2 access key ID |
+| `R2_SECRET_ACCESS_KEY` | `None` | Cloudflare R2 secret access key |
+| `R2_BUCKET` | `None` | Cloudflare R2 bucket name |
+| `R2_REGION` | `auto` | Cloudflare R2 region |
+| `R2_ENDPOINT_URL` | `None` | Optional custom R2 endpoint URL |
+| `R2_PUBLIC_BASE_URL` | `None` | Public base URL for R2 objects |
+| `R2_KEY_PREFIX` | `` | Optional prefix for R2 object keys |
+| `R2_ALLOWED_EXTENSIONS` | `.mp4,...,.zip` | Allowed extensions for R2 uploads |
+
+### R2 Storage Notes
+
+- Set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET` before using storage endpoints.
+- Set `R2_PUBLIC_BASE_URL` to your public bucket domain or custom CDN domain.
+- If `R2_PUBLIC_BASE_URL` is not set, URLs default to `https://{bucket}.{account_id}.r2.cloudflarestorage.com/{key}`.
+
+## Caption Styling Defaults
+
+By default, captions use a TikTok-style look:
+
+- Arial font
+- Auto-sized text (about 3.5% of media height when `font_size` is omitted)
+- White text with a black outline (block border)
+- No background box unless you pass `bg_color`
 
 ## Deployment to Coolify
 

@@ -34,9 +34,17 @@ class Caption(BaseModel):
 class VideoCaptionRequest(BaseModel):
     """Request model for video captioning."""
     captions: List[Caption] = Field(..., min_length=1, description="List of captions")
-    font_size: int = Field(default=24, ge=8, le=72, description="Font size in pixels")
+    font_size: Optional[int] = Field(
+        default=None,
+        ge=8,
+        le=72,
+        description="Font size in pixels (auto-sized if omitted)"
+    )
     font_color: str = Field(default="white", description="Font color")
-    bg_color: str = Field(default="black@0.5", description="Background color with opacity")
+    bg_color: Optional[str] = Field(
+        default=None,
+        description="Optional background color with opacity"
+    )
     position: Literal["top", "center", "bottom"] = Field(
         default="bottom",
         description="Caption position"
@@ -46,9 +54,17 @@ class VideoCaptionRequest(BaseModel):
 class ImageCaptionRequest(BaseModel):
     """Request model for image captioning."""
     text: str = Field(..., min_length=1, max_length=500, description="Caption text")
-    font_size: int = Field(default=24, ge=8, le=72, description="Font size in pixels")
+    font_size: Optional[int] = Field(
+        default=None,
+        ge=8,
+        le=72,
+        description="Font size in pixels (auto-sized if omitted)"
+    )
     font_color: str = Field(default="white", description="Font color")
-    bg_color: str = Field(default="black@0.5", description="Background color with opacity")
+    bg_color: Optional[str] = Field(
+        default=None,
+        description="Optional background color with opacity"
+    )
     position: Literal["top", "center", "bottom", "custom"] = Field(
         default="bottom",
         description="Text position"
@@ -76,9 +92,9 @@ async def add_video_captions(
         ...,
         description='JSON array of captions: [{"text": "Hello", "start": 0, "end": 2}]'
     ),
-    font_size: int = Form(default=24, ge=8, le=72),
+    font_size: Optional[int] = Form(default=None, ge=8, le=72),
     font_color: str = Form(default="white"),
-    bg_color: str = Form(default="black@0.5"),
+    bg_color: Optional[str] = Form(default=None),
     position: str = Form(default="bottom"),
     api_key: str = Depends(verify_api_key)
 ):
@@ -168,9 +184,9 @@ async def add_video_captions(
 async def add_image_caption(
     image: UploadFile = File(..., description="Image file to caption"),
     text: str = Form(..., min_length=1, max_length=500, description="Caption text"),
-    font_size: int = Form(default=24, ge=8, le=72),
+    font_size: Optional[int] = Form(default=None, ge=8, le=72),
     font_color: str = Form(default="white"),
-    bg_color: str = Form(default="black@0.5"),
+    bg_color: Optional[str] = Form(default=None),
     position: str = Form(default="bottom"),
     x_offset: int = Form(default=0),
     y_offset: int = Form(default=0),

@@ -127,6 +127,23 @@ def generate_output_path(prefix: str, extension: str) -> str:
     return os.path.join(settings.OUTPUT_DIR, filename)
 
 
+def generate_temp_path(prefix: str, extension: str) -> str:
+    """
+    Generate a unique temp file path.
+    
+    Args:
+        prefix: Filename prefix
+        extension: File extension (with dot)
+        
+    Returns:
+        Full path to temp file
+    """
+    os.makedirs(settings.TEMP_DIR, exist_ok=True)
+    unique_id = uuid.uuid4().hex[:12]
+    filename = f"{prefix}{unique_id}{extension}"
+    return os.path.join(settings.TEMP_DIR, filename)
+
+
 def cleanup_file(filepath: str) -> None:
     """
     Remove a file if it exists.
