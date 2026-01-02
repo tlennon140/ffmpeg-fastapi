@@ -511,24 +511,24 @@ class FFMPEGService:
                     text = caption["text"].replace("\n", "\\N")
                     f.write(f"{i}\n{start} --> {end}\n{text}\n\n")
             
-        resolved_font_size = await FFMPEGService._resolve_font_size(video_path, font_size)
-        border_width = FFMPEGService._resolve_border_width(resolved_font_size)
-        alignment_map = {"top": 8, "center": 5, "bottom": 2}
-        alignment = alignment_map.get(position, 2)
-        
-        # Build filter for subtitles
-        primary_color = FFMPEGService._ass_color(font_color, ASS_COLOR_FALLBACK)
-        subtitle_style = (
-            f"FontName={DEFAULT_CAPTION_FONT},"
-            f"FontSize={resolved_font_size},"
-            f"PrimaryColour={primary_color},"
-            f"OutlineColour={ASS_OUTLINE_FALLBACK},"
-            f"Outline={border_width},"
-            "BorderStyle=1,"
-            "Shadow=0,"
-            f"Alignment={alignment}"
-        )
-        subtitle_filter = f"subtitles='{srt_path}':force_style='{subtitle_style}'"
+            resolved_font_size = await FFMPEGService._resolve_font_size(video_path, font_size)
+            border_width = FFMPEGService._resolve_border_width(resolved_font_size)
+            alignment_map = {"top": 8, "center": 5, "bottom": 2}
+            alignment = alignment_map.get(position, 2)
+            
+            # Build filter for subtitles
+            primary_color = FFMPEGService._ass_color(font_color, ASS_COLOR_FALLBACK)
+            subtitle_style = (
+                f"FontName={DEFAULT_CAPTION_FONT},"
+                f"FontSize={resolved_font_size},"
+                f"PrimaryColour={primary_color},"
+                f"OutlineColour={ASS_OUTLINE_FALLBACK},"
+                f"Outline={border_width},"
+                "BorderStyle=1,"
+                "Shadow=0,"
+                f"Alignment={alignment}"
+            )
+            subtitle_filter = f"subtitles='{srt_path}':force_style='{subtitle_style}'"
             
             cmd = [
                 "ffmpeg",
