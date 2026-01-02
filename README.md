@@ -84,6 +84,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/api/v1/videos/concat` | POST | Yes | Concatenate video segments from URLs |
+| `/api/v1/videos/download` | POST | Yes | Download video from URL to R2 |
 | `/api/v1/videos/audio` | POST | Yes | Add or replace audio on a video |
 | `/api/v1/videos/aspect` | POST | Yes | Convert video aspect ratio (pad) |
 | `/api/v1/videos/crop/vertical` | POST | Yes | Smart crop for vertical video |
@@ -131,6 +132,18 @@ curl -X POST "http://localhost:8000/api/v1/videos/concat" \
       {"url": "https://example.com/video1.mp4", "start": 0, "end": 4.5},
       {"url": "https://example.com/video2.mp4", "start": 2, "end": 8}
     ]
+  }'
+```
+
+### Download Video to R2
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/videos/download" \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/video.mp4",
+    "upload_location": "imports"
   }'
 ```
 

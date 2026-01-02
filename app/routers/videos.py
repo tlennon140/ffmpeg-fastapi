@@ -2,7 +2,9 @@
 Video endpoints for concatenating segments from URLs.
 """
 
+import os
 from typing import List, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import AnyHttpUrl, BaseModel, Field, model_validator
@@ -12,6 +14,7 @@ from app.services.ffmpeg_service import ffmpeg_service
 from app.services.r2_service import r2_service
 from app.utils.auth import verify_api_key
 from app.utils.files import (
+    cleanup_file,
     cleanup_files,
     generate_output_path,
     generate_temp_path,
@@ -20,6 +23,40 @@ from app.utils.files import (
 )
 
 router = APIRouter()
+
+
+def _resolve_download_filename(
+    url: str,
+    downloaded_path: str,
+    requested_filename: Optional[str]
+) -> str:
+    downloaded_ext = os.path.splitext(downloaded_path)[1].lower()
+    if requested_filename:
+        safe_name = os.path.basename(requested_filename)
+        if safe_name != requested_filename or not safe_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid filename"
+            )
+        name, ext = os.path.splitext(safe_name)
+        if not ext:
+            ext = downloaded_ext
+            safe_name = f"{name or 'video'}{ext}"
+        ext = ext.lower()
+        if ext not in settings.allowed_video_extensions_list:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File type '{ext}' not allowed"
+            )
+        return safe_name
+    parsed = urlparse(url)
+    url_name = os.path.basename(parsed.path)
+    if url_name:
+        name, ext = os.path.splitext(url_name)
+        if ext.lower() in settings.allowed_video_extensions_list:
+            return url_name
+        return f"{name or 'video'}{downloaded_ext}"
+    return f"video{downloaded_ext}"
 
 
 class VideoSegment(BaseModel):
@@ -56,6 +93,28 @@ class VideoConcatResponse(BaseModel):
     message: str
     r2_key: Optional[str] = None
     r2_url: Optional[str] = None
+
+
+class VideoDownloadRequest(BaseModel):
+    """Request model for downloading a video from URL."""
+    url: AnyHttpUrl = Field(..., description="Video URL to download")
+    filename: Optional[str] = Field(
+        default=None,
+        description="Optional filename for the uploaded video"
+    )
+    upload_location: Optional[str] = Field(
+        default=None,
+        description="Optional key prefix within the bucket"
+    )
+
+
+class VideoDownloadResponse(BaseModel):
+    """Response model for downloading a video to R2."""
+    success: bool
+    filename: str
+    message: str
+    r2_key: str
+    r2_url: str
 
 
 class VideoAudioResponse(BaseModel):
@@ -162,6 +221,48 @@ async def concat_videos(
 
     finally:
         cleanup_files(*downloaded_paths, *segment_paths)
+
+
+@router.post(
+    "/videos/download",
+    response_model=VideoDownloadResponse,
+    summary="Download video from URL",
+    description="Download a video from a URL and upload it to R2."
+)
+async def download_video_to_r2(
+    request: VideoDownloadRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Download a remote video and persist it to R2.
+    """
+    download_path = None
+    try:
+        download_path = await ffmpeg_service.download_video_from_url(
+            str(request.url),
+            prefix="download_"
+        )
+        filename = _resolve_download_filename(
+            str(request.url),
+            download_path,
+            request.filename
+        )
+        result = await r2_service.upload_file_path(
+            file_path=download_path,
+            filename=filename,
+            key_prefix=request.upload_location or ""
+        )
+
+        return VideoDownloadResponse(
+            success=True,
+            filename=filename,
+            message="Video downloaded and uploaded to R2 successfully",
+            r2_key=result.key,
+            r2_url=result.url
+        )
+    finally:
+        if download_path:
+            cleanup_file(download_path)
 
 
 @router.post(

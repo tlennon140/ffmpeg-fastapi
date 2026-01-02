@@ -344,6 +344,66 @@ class FFMPEGService:
         return f"&H00{b}{g}{r}"
 
     @staticmethod
+    def _parse_alpha(value: str) -> Optional[float]:
+        """Parse alpha values like 0.5 or 50% into a 0-1 float."""
+        if not value:
+            return None
+        value = value.strip()
+        try:
+            if value.endswith("%"):
+                return float(value[:-1]) / 100.0
+            alpha = float(value)
+        except ValueError:
+            return None
+        if alpha > 1.0 and alpha <= 100.0:
+            alpha = alpha / 100.0
+        if 0.0 <= alpha <= 1.0:
+            return alpha
+        return None
+
+    @staticmethod
+    def _split_color_alpha(color: str) -> Tuple[str, Optional[float]]:
+        """Split colors like 'black@0.65' into base color and alpha."""
+        if not color:
+            return "", None
+        color = color.strip()
+        if "@" not in color:
+            return color, None
+        base, alpha_value = color.rsplit("@", 1)
+        return base.strip(), FFMPEGService._parse_alpha(alpha_value)
+
+    @staticmethod
+    def _ass_color_with_alpha(color: str, fallback: str) -> str:
+        """Convert color with optional alpha to ASS format (&HAABBGGRR)."""
+        base_color, alpha = FFMPEGService._split_color_alpha(color)
+        color_value = FFMPEGService._ass_color(base_color, fallback)
+        if alpha is None:
+            return color_value
+        alpha = max(0.0, min(alpha, 1.0))
+        alpha_byte = int(round(alpha * 255))
+        return f"&H{alpha_byte:02X}{color_value[4:]}"
+
+    @staticmethod
+    def _format_ass_time(seconds: float) -> str:
+        """Format seconds as ASS time (H:MM:SS.CS)."""
+        total_cs = int(round(max(0.0, seconds) * 100))
+        cs = total_cs % 100
+        total_seconds = total_cs // 100
+        secs = total_seconds % 60
+        total_minutes = total_seconds // 60
+        mins = total_minutes % 60
+        hours = total_minutes // 60
+        return f"{hours}:{mins:02d}:{secs:02d}.{cs:02d}"
+
+    @staticmethod
+    def _ass_escape_text(value: str) -> str:
+        """Escape ASS dialogue text and preserve new lines."""
+        escaped = value.replace("\\", "\\\\")
+        escaped = escaped.replace("{", "\\{").replace("}", "\\}")
+        escaped = escaped.replace("\r", "")
+        return escaped.replace("\n", "\\N")
+
+    @staticmethod
     def _escape_drawtext_text(value: str) -> str:
         """Escape drawtext values for FFmpeg filter syntax."""
         escaped = []
@@ -360,6 +420,8 @@ class FFMPEGService:
                 escaped.append("\\'")
             elif ch == ",":
                 escaped.append("\\,")
+            elif ch in {"[", "]"}:
+                escaped.append(f"\\{ch}")
             elif ch == "%":
                 escaped.append("\\%")
             else:
@@ -620,12 +682,11 @@ class FFMPEGService:
         Returns:
             FFMPEGResult with operation status
         """
+        subtitle_path = generate_temp_path("captions_", ".ass")
         try:
             width, height = await FFMPEGService.get_media_dimensions(video_path)
             resolved_font_size = FFMPEGService._resolve_font_size_from_height(height, font_size)
             border_width = FFMPEGService._resolve_border_width(resolved_font_size)
-            font_spec = FFMPEGService._drawtext_font_spec()
-            line_spacing = FFMPEGService._resolve_line_spacing(resolved_font_size)
             box_padding = FFMPEGService._resolve_box_padding(resolved_font_size)
             max_text_width = int(round(width * DEFAULT_CAPTION_MAX_WIDTH_RATIO))
             min_side_margin = int(round(width * DEFAULT_CAPTION_SIDE_MARGIN_RATIO))
@@ -633,46 +694,95 @@ class FFMPEGService:
             max_chars = max(1, int(max_text_width / (resolved_font_size * 0.6)))
             
             if position == "top":
-                x_expr = f"max({min_side_margin}, (w-text_w)/2)"
-                y_expr = f"{int(round(height * 0.06))}"
+                alignment = 8
+                margin_v = int(round(height * 0.06))
             elif position == "center":
-                x_expr = f"max({min_side_margin}, (w-text_w)/2)"
-                y_expr = "(h-text_h)/2"
+                alignment = 5
+                margin_v = 0
             else:  # bottom
-                x_expr = f"max({min_side_margin}, (w-text_w)/2)"
-                y_expr = f"(h-{bottom_margin}-text_h-{box_padding * 2})"
+                alignment = 2
+                margin_v = bottom_margin
             
             resolved_bg_color = bg_color
             if resolved_bg_color is None:
                 resolved_bg_color = f"black@{DEFAULT_CAPTION_BOX_ALPHA}"
             
-            box_flags = "box=0"
+            primary_color = FFMPEGService._ass_color_with_alpha(
+                font_color,
+                ASS_COLOR_FALLBACK
+            )
+            outline_color = ASS_OUTLINE_FALLBACK
+            border_style = 1
+            outline_size = border_width
+            back_color = "&H00000000"
             if resolved_bg_color:
-                box_flags = (
-                    f"box=1:boxcolor={resolved_bg_color}:"
-                    f"boxborderw={box_padding}"
+                border_style = 3
+                outline_size = box_padding
+                back_color = FFMPEGService._ass_color_with_alpha(
+                    resolved_bg_color,
+                    ASS_OUTLINE_FALLBACK
                 )
             
-            filters = []
+            font_name = settings.CAPTION_FONT or DEFAULT_CAPTION_FONT
+            font_file = FFMPEGService._find_font_file(font_name)
+            if font_file:
+                font_name = Path(font_file).stem
+            
+            ass_lines = [
+                "[Script Info]",
+                "ScriptType: v4.00+",
+                f"PlayResX: {width}",
+                f"PlayResY: {height}",
+                "ScaledBorderAndShadow: yes",
+                "",
+                "[V4+ Styles]",
+                (
+                    "Format: Name,Fontname,Fontsize,PrimaryColour,"
+                    "SecondaryColour,OutlineColour,BackColour,Bold,Italic,"
+                    "Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,"
+                    "BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,"
+                    "MarginV,Encoding"
+                ),
+                (
+                    "Style: Default,"
+                    f"{font_name},{resolved_font_size},{primary_color},"
+                    f"{primary_color},{outline_color},{back_color},"
+                    "0,0,0,0,100,100,0,0,"
+                    f"{border_style},{outline_size},0,{alignment},"
+                    f"{min_side_margin},{min_side_margin},{margin_v},1"
+                ),
+                "",
+                "[Events]",
+                (
+                    "Format: Layer,Start,End,Style,Name,MarginL,MarginR,"
+                    "MarginV,Effect,Text"
+                ),
+            ]
+            
             for caption in captions:
                 text = FFMPEGService._wrap_caption_text(str(caption["text"]), max_chars)
-                escaped_text = FFMPEGService._escape_drawtext_text(text)
+                if not text:
+                    continue
                 start = float(caption["start"])
                 end = float(caption["end"])
-                filters.append(
-                    "drawtext="
-                    f"text='{escaped_text}':"
-                    f"{font_spec}"
-                    f"fontsize={resolved_font_size}:"
-                    f"fontcolor={font_color}:"
-                    f"borderw={border_width}:bordercolor=black:"
-                    f"line_spacing={line_spacing}:"
-                    f"x={x_expr}:y={y_expr}:"
-                    f"{box_flags}:"
-                    f"enable='between(t,{start},{end})'"
+                if end <= start:
+                    continue
+                ass_text = FFMPEGService._ass_escape_text(text)
+                ass_lines.append(
+                    "Dialogue: 0,"
+                    f"{FFMPEGService._format_ass_time(start)},"
+                    f"{FFMPEGService._format_ass_time(end)},"
+                    "Default,,0,0,0,,"
+                    f"{ass_text}"
                 )
             
-            subtitle_filter = ",".join(filters)
+            with open(subtitle_path, "w", encoding="utf-8") as subtitle_file:
+                subtitle_file.write("\n".join(ass_lines) + "\n")
+            
+            subtitle_filter = f"subtitles=filename='{subtitle_path}':charenc=UTF-8"
+            fonts_dir = settings.CAPTION_FONT_FOLDER
+            if fonts_dir and os.path.isdir(fonts_dir):
+                subtitle_filter += f":fontsdir='{os.path.abspath(fonts_dir)}'"
             
             cmd = [
                 "ffmpeg",
@@ -690,12 +800,13 @@ class FFMPEGService:
             
             if success and os.path.exists(output_path):
                 return FFMPEGResult(success=True, output_path=output_path)
-            else:
-                return FFMPEGResult(success=False, error=stderr)
+            return FFMPEGResult(success=False, error=stderr)
                 
         except Exception as e:
             logger.error(f"Error adding captions: {e}")
             return FFMPEGResult(success=False, error=str(e))
+        finally:
+            cleanup_file(subtitle_path)
     
     @staticmethod
     async def add_text_to_image(
