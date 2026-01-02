@@ -48,6 +48,10 @@ class Settings(BaseSettings):
         default=".jpg,.jpeg,.png,.gif,.bmp,.webp,.tiff",
         description="Comma-separated allowed image extensions"
     )
+    ALLOWED_AUDIO_EXTENSIONS: str = Field(
+        default=".mp3,.wav,.aac,.m4a,.ogg,.flac",
+        description="Comma-separated allowed audio extensions"
+    )
     
     # Directories
     TEMP_DIR: str = Field(
@@ -79,6 +83,16 @@ class Settings(BaseSettings):
     ENABLE_DOCS: bool = Field(
         default=True,
         description="Enable Swagger/ReDoc documentation"
+    )
+
+    # Caption Styling
+    CAPTION_FONT: str = Field(
+        default="Arial",
+        description="Font name for captions"
+    )
+    CAPTION_FONT_FOLDER: str = Field(
+        default="fonts",
+        description="Folder path containing caption font files"
     )
 
     # R2 Storage
@@ -148,6 +162,11 @@ class Settings(BaseSettings):
     def allowed_image_extensions_list(self) -> List[str]:
         """Parse image extensions into a list."""
         return [e.strip().lower() for e in self.ALLOWED_IMAGE_EXTENSIONS.split(",")]
+
+    @property
+    def allowed_audio_extensions_list(self) -> List[str]:
+        """Parse audio extensions into a list."""
+        return [e.strip().lower() for e in self.ALLOWED_AUDIO_EXTENSIONS.split(",")]
     
     @property
     def cors_origins_list(self) -> List[str]:

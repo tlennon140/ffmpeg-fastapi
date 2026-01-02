@@ -84,6 +84,9 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/api/v1/videos/concat` | POST | Yes | Concatenate video segments from URLs |
+| `/api/v1/videos/audio` | POST | Yes | Add or replace audio on a video |
+| `/api/v1/videos/aspect` | POST | Yes | Convert video aspect ratio (pad) |
+| `/api/v1/videos/crop/vertical` | POST | Yes | Smart crop for vertical video |
 
 ### Storage
 
@@ -144,6 +147,33 @@ curl -X POST "http://localhost:8000/api/v1/storage/r2/upload/output/captioned_ab
   -H "X-API-Key: your-api-key"
 ```
 
+### Add or Replace Audio
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/videos/audio" \
+  -H "X-API-Key: your-api-key" \
+  -F "video=@video.mp4" \
+  -F "audio=@track.mp3" \
+  -F "replace_audio=true"
+```
+
+### Convert Aspect Ratio
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/videos/aspect" \
+  -H "X-API-Key: your-api-key" \
+  -F "video=@video.mp4" \
+  -F "ratio=9:16"
+```
+
+### Smart Crop for Vertical
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/videos/crop/vertical" \
+  -H "X-API-Key: your-api-key" \
+  -F "video=@video.mp4" \
+  -F "ratio=9:16"
+```
 ### Auto-Upload Results to R2
 
 Processing endpoints accept these optional parameters:
@@ -213,6 +243,9 @@ All settings can be configured via environment variables:
 | `RATE_LIMIT_WINDOW` | `60` | Rate limit window (seconds) |
 | `RATE_LIMIT_UPLOAD_REQUESTS` | `10` | Upload requests per window |
 | `MAX_UPLOAD_SIZE_MB` | `500` | Max upload size |
+| `ALLOWED_VIDEO_EXTENSIONS` | `.mp4,.avi,.mov,.mkv,.webm,.flv,.wmv` | Allowed video extensions |
+| `ALLOWED_IMAGE_EXTENSIONS` | `.jpg,.jpeg,.png,.gif,.bmp,.webp,.tiff` | Allowed image extensions |
+| `ALLOWED_AUDIO_EXTENSIONS` | `.mp3,.wav,.aac,.m4a,.ogg,.flac` | Allowed audio extensions |
 | `FFMPEG_TIMEOUT` | `300` | Operation timeout (seconds) |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `ENABLE_DOCS` | `true` | Enable Swagger/ReDoc |
@@ -225,6 +258,8 @@ All settings can be configured via environment variables:
 | `R2_PUBLIC_BASE_URL` | `None` | Public base URL for R2 objects |
 | `R2_KEY_PREFIX` | `` | Optional prefix for R2 object keys |
 | `R2_ALLOWED_EXTENSIONS` | `.mp4,...,.zip` | Allowed extensions for R2 uploads |
+| `CAPTION_FONT` | `Arial` | Caption font name (Arial, Raleway, Montserrat, Roboto) |
+| `CAPTION_FONT_FOLDER` | `fonts` | Folder containing caption font files |
 
 ### R2 Storage Notes
 
@@ -257,10 +292,14 @@ R2_ALLOWED_EXTENSIONS=.mp4,.avi,.mov,.mkv,.webm,.flv,.wmv,.jpg,.jpeg,.png,.gif,.
 
 By default, captions use a TikTok-style look:
 
-- Arial font
-- Auto-sized text (about 1.75% of media height when `font_size` is omitted)
-- White text with a black outline (block border)
-- No background box unless you pass `bg_color`
+- Arial font (via `CAPTION_FONT` and `CAPTION_FONT_FOLDER`)
+- Auto-sized text (about 1.4% of media height when `font_size` is omitted)
+- Max width ~72% of video width, wrapped to 2 lines
+- Line height ~1.2x
+- Safe margins: ~6% left/right, ~12% bottom
+- Semi-transparent background box (`black@0.65`)
+
+Available bundled fonts in `fonts/`: Arial, Raleway, Montserrat, Roboto.
 
 ## Deployment to Coolify
 

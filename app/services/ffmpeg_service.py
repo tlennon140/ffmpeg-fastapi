@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shlex
+import textwrap
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -21,12 +22,17 @@ from app.utils.files import cleanup_file, generate_temp_path
 logger = logging.getLogger(__name__)
 
 DEFAULT_CAPTION_FONT = "Arial"
-DEFAULT_CAPTION_FONT_RATIO = 0.035
+DEFAULT_CAPTION_FONT_RATIO = 0.014
 DEFAULT_CAPTION_MIN_FONT_SIZE = 8
-DEFAULT_CAPTION_MAX_FONT_SIZE = 36
+DEFAULT_CAPTION_MAX_FONT_SIZE = 28
 DEFAULT_CAPTION_BORDER_RATIO = 0.12
 DEFAULT_CAPTION_MIN_BORDER = 2
 DEFAULT_CAPTION_MAX_BORDER = 10
+DEFAULT_CAPTION_MAX_WIDTH_RATIO = 0.72
+DEFAULT_CAPTION_LINE_HEIGHT = 1.2
+DEFAULT_CAPTION_SIDE_MARGIN_RATIO = 0.06
+DEFAULT_CAPTION_BOTTOM_MARGIN_RATIO = 0.12
+DEFAULT_CAPTION_BOX_ALPHA = 0.65
 ASS_COLOR_FALLBACK = "&H00FFFFFF"
 ASS_OUTLINE_FALLBACK = "&H00000000"
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
@@ -256,6 +262,18 @@ class FFMPEGService:
         )
 
     @staticmethod
+    def _resolve_font_size_from_height(height: int, font_size: Optional[int]) -> int:
+        """Resolve font size based on a known media height."""
+        if font_size is not None:
+            return font_size
+        
+        scaled_size = int(round(height * DEFAULT_CAPTION_FONT_RATIO))
+        return max(
+            DEFAULT_CAPTION_MIN_FONT_SIZE,
+            min(scaled_size, DEFAULT_CAPTION_MAX_FONT_SIZE)
+        )
+
+    @staticmethod
     def _resolve_border_width(font_size: int) -> int:
         """Resolve border width relative to font size."""
         scaled_width = int(round(font_size * DEFAULT_CAPTION_BORDER_RATIO))
@@ -263,6 +281,37 @@ class FFMPEGService:
             DEFAULT_CAPTION_MIN_BORDER,
             min(scaled_width, DEFAULT_CAPTION_MAX_BORDER)
         )
+
+    @staticmethod
+    def _resolve_box_padding(font_size: int) -> int:
+        """Resolve box padding around captions."""
+        scaled_padding = int(round(font_size * 0.7))
+        return max(10, min(scaled_padding, 20))
+
+    @staticmethod
+    def _resolve_line_spacing(font_size: int) -> int:
+        """Resolve line spacing in pixels."""
+        return max(0, int(round(font_size * (DEFAULT_CAPTION_LINE_HEIGHT - 1.0))))
+
+    @staticmethod
+    def _wrap_caption_text(text: str, max_chars: int) -> str:
+        """Wrap caption text to a maximum number of characters per line."""
+        cleaned = " ".join(text.split())
+        if not cleaned:
+            return ""
+        
+        lines = textwrap.wrap(
+            cleaned,
+            width=max_chars,
+            break_long_words=True,
+            break_on_hyphens=False
+        )
+        if len(lines) <= 2:
+            return "\n".join(lines)
+        
+        remainder = " ".join(lines[1:])
+        last_line = textwrap.shorten(remainder, width=max_chars, placeholder="...")
+        return "\n".join([lines[0], last_line])
 
     @staticmethod
     def _ass_color(color: str, fallback: str) -> str:
@@ -293,6 +342,59 @@ class FFMPEGService:
         g = hex_color[2:4].upper()
         b = hex_color[4:6].upper()
         return f"&H00{b}{g}{r}"
+
+    @staticmethod
+    def _escape_drawtext_text(value: str) -> str:
+        """Escape drawtext values for FFmpeg filter syntax."""
+        return value.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+    @staticmethod
+    def _find_font_file(font_name: str) -> Optional[str]:
+        """Find a font file in the configured font folder."""
+        folder = settings.CAPTION_FONT_FOLDER
+        if not folder or not os.path.isdir(folder):
+            return None
+        
+        target_name = Path(font_name).stem.lower()
+        for entry in os.listdir(folder):
+            entry_path = Path(entry)
+            if entry_path.suffix.lower() not in {".ttf", ".otf", ".ttc"}:
+                continue
+            if entry_path.stem.lower() == target_name:
+                return os.path.join(folder, entry)
+        return None
+
+    @staticmethod
+    def _drawtext_font_spec() -> str:
+        """Build drawtext font parameter using config settings."""
+        font_name = settings.CAPTION_FONT or DEFAULT_CAPTION_FONT
+        font_file = FFMPEGService._find_font_file(font_name)
+        if font_file:
+            fontfile = FFMPEGService._escape_drawtext_text(font_file)
+            return f"fontfile='{fontfile}':"
+        font_name = FFMPEGService._escape_drawtext_text(font_name)
+        return f"font='{font_name}':"
+
+    @staticmethod
+    def _parse_aspect_ratio(value: str) -> float:
+        """Parse aspect ratio strings like '9:16'."""
+        ratios = {
+            "9:16": 9 / 16,
+            "1:1": 1.0,
+            "16:9": 16 / 9,
+        }
+        if value not in ratios:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Aspect ratio must be one of: 9:16, 1:1, 16:9"
+            )
+        return ratios[value]
+
+    @staticmethod
+    def _even(value: int) -> int:
+        """Ensure value is even and at least 2."""
+        value = max(2, value)
+        return value if value % 2 == 0 else value - 1
 
     @staticmethod
     async def trim_video_segment(
@@ -500,35 +602,59 @@ class FFMPEGService:
         Returns:
             FFMPEGResult with operation status
         """
-        # Create subtitle file in SRT format
-        srt_path = output_path.rsplit(".", 1)[0] + ".srt"
-        
         try:
-            with open(srt_path, "w", encoding="utf-8") as f:
-                for i, caption in enumerate(captions, 1):
-                    start = FFMPEGService._format_srt_time(caption["start"])
-                    end = FFMPEGService._format_srt_time(caption["end"])
-                    text = caption["text"].replace("\n", "\\N")
-                    f.write(f"{i}\n{start} --> {end}\n{text}\n\n")
-            
-            resolved_font_size = await FFMPEGService._resolve_font_size(video_path, font_size)
+            width, height = await FFMPEGService.get_media_dimensions(video_path)
+            resolved_font_size = FFMPEGService._resolve_font_size_from_height(height, font_size)
             border_width = FFMPEGService._resolve_border_width(resolved_font_size)
-            alignment_map = {"top": 8, "center": 5, "bottom": 2}
-            alignment = alignment_map.get(position, 2)
+            font_spec = FFMPEGService._drawtext_font_spec()
+            line_spacing = FFMPEGService._resolve_line_spacing(resolved_font_size)
+            box_padding = FFMPEGService._resolve_box_padding(resolved_font_size)
+            max_text_width = int(round(width * DEFAULT_CAPTION_MAX_WIDTH_RATIO))
+            min_side_margin = int(round(width * DEFAULT_CAPTION_SIDE_MARGIN_RATIO))
+            bottom_margin = int(round(height * DEFAULT_CAPTION_BOTTOM_MARGIN_RATIO))
+            max_chars = max(1, int(max_text_width / (resolved_font_size * 0.6)))
             
-            # Build filter for subtitles
-            primary_color = FFMPEGService._ass_color(font_color, ASS_COLOR_FALLBACK)
-            subtitle_style = (
-                f"FontName={DEFAULT_CAPTION_FONT},"
-                f"FontSize={resolved_font_size},"
-                f"PrimaryColour={primary_color},"
-                f"OutlineColour={ASS_OUTLINE_FALLBACK},"
-                f"Outline={border_width},"
-                "BorderStyle=1,"
-                "Shadow=0,"
-                f"Alignment={alignment}"
-            )
-            subtitle_filter = f"subtitles='{srt_path}':force_style='{subtitle_style}'"
+            if position == "top":
+                x_expr = f"max({min_side_margin}, (w-text_w)/2)"
+                y_expr = f"{int(round(height * 0.06))}"
+            elif position == "center":
+                x_expr = f"max({min_side_margin}, (w-text_w)/2)"
+                y_expr = "(h-text_h)/2"
+            else:  # bottom
+                x_expr = f"max({min_side_margin}, (w-text_w)/2)"
+                y_expr = f"(h-{bottom_margin}-text_h-{box_padding * 2})"
+            
+            resolved_bg_color = bg_color
+            if resolved_bg_color is None:
+                resolved_bg_color = f"black@{DEFAULT_CAPTION_BOX_ALPHA}"
+            
+            box_flags = "box=0"
+            if resolved_bg_color:
+                box_flags = (
+                    f"box=1:boxcolor={resolved_bg_color}:"
+                    f"boxborderw={box_padding}"
+                )
+            
+            filters = []
+            for caption in captions:
+                text = FFMPEGService._wrap_caption_text(str(caption["text"]), max_chars)
+                escaped_text = FFMPEGService._escape_drawtext_text(text)
+                start = float(caption["start"])
+                end = float(caption["end"])
+                filters.append(
+                    "drawtext="
+                    f"text='{escaped_text}':"
+                    f"{font_spec}"
+                    f"fontsize={resolved_font_size}:"
+                    f"fontcolor={font_color}:"
+                    f"borderw={border_width}:bordercolor=black:"
+                    f"line_spacing={line_spacing}:"
+                    f"x={x_expr}:y={y_expr}:"
+                    f"{box_flags}:"
+                    f"enable='between(t,{start},{end})'"
+                )
+            
+            subtitle_filter = ",".join(filters)
             
             cmd = [
                 "ffmpeg",
@@ -544,10 +670,6 @@ class FFMPEGService:
             
             success, stdout, stderr = await FFMPEGService.run_command(cmd)
             
-            # Cleanup SRT file
-            if os.path.exists(srt_path):
-                os.remove(srt_path)
-            
             if success and os.path.exists(output_path):
                 return FFMPEGResult(success=True, output_path=output_path)
             else:
@@ -555,8 +677,6 @@ class FFMPEGService:
                 
         except Exception as e:
             logger.error(f"Error adding captions: {e}")
-            if os.path.exists(srt_path):
-                os.remove(srt_path)
             return FFMPEGResult(success=False, error=str(e))
     
     @staticmethod
@@ -606,7 +726,7 @@ class FFMPEGService:
         border_width = FFMPEGService._resolve_border_width(resolved_font_size)
         
         # Escape special characters in text
-        escaped_text = text.replace("'", "'\\''").replace(":", "\\:")
+        escaped_text = FFMPEGService._escape_drawtext_text(text)
         box_flags = "box=0"
         if bg_color:
             box_flags = f"box=1:boxcolor={bg_color}:boxborderw=10"
@@ -614,7 +734,7 @@ class FFMPEGService:
         # Build drawtext filter
         drawtext_filter = (
             f"drawtext=text='{escaped_text}':"
-            f"font={DEFAULT_CAPTION_FONT}:"
+            f"{FFMPEGService._drawtext_font_spec()}"
             f"fontsize={resolved_font_size}:"
             f"fontcolor={font_color}:"
             f"borderw={border_width}:bordercolor=black:"
@@ -637,6 +757,195 @@ class FFMPEGService:
             return FFMPEGResult(success=True, output_path=output_path)
         else:
             return FFMPEGResult(success=False, error=stderr)
+
+    @staticmethod
+    async def add_audio_to_video(
+        video_path: str,
+        audio_path: str,
+        output_path: str,
+        replace_audio: bool = False
+    ) -> FFMPEGResult:
+        """
+        Add or replace audio on a video.
+        
+        Args:
+            video_path: Path to input video
+            audio_path: Path to input audio
+            output_path: Path for output video
+            replace_audio: If True, replace original audio
+            
+        Returns:
+            FFMPEGResult with operation status
+        """
+        try:
+            has_audio = await FFMPEGService._has_audio_stream(video_path)
+        except HTTPException as exc:
+            return FFMPEGResult(success=False, error=str(exc.detail))
+        
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", video_path,
+            "-i", audio_path,
+        ]
+        
+        if replace_audio or not has_audio:
+            cmd.extend([
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-shortest",
+                "-movflags", "+faststart",
+            ])
+        else:
+            cmd.extend([
+                "-filter_complex",
+                "[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=2[aout]",
+                "-map", "0:v:0",
+                "-map", "[aout]",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-shortest",
+                "-movflags", "+faststart",
+            ])
+        
+        if settings.FFMPEG_THREADS > 0:
+            cmd.extend(["-threads", str(settings.FFMPEG_THREADS)])
+        
+        cmd.append(output_path)
+        
+        success, stdout, stderr = await FFMPEGService.run_command(cmd)
+        
+        if success and os.path.exists(output_path):
+            return FFMPEGResult(success=True, output_path=output_path)
+        return FFMPEGResult(success=False, error=stderr)
+
+    @staticmethod
+    async def convert_aspect_ratio(
+        video_path: str,
+        output_path: str,
+        target_ratio: str,
+        background_color: str = "black"
+    ) -> FFMPEGResult:
+        """
+        Convert a video's aspect ratio using padding.
+        
+        Args:
+            video_path: Path to input video
+            output_path: Path for output video
+            target_ratio: Target ratio string (9:16, 1:1, 16:9)
+            background_color: Padding color
+            
+        Returns:
+            FFMPEGResult with operation status
+        """
+        ratio = FFMPEGService._parse_aspect_ratio(target_ratio)
+        width, height = await FFMPEGService.get_media_dimensions(video_path)
+        
+        if ratio >= 1:
+            target_width = width
+            target_height = int(round(width / ratio))
+        else:
+            target_height = height
+            target_width = int(round(height * ratio))
+        
+        target_width = FFMPEGService._even(target_width)
+        target_height = FFMPEGService._even(target_height)
+        
+        vf_filter = (
+            f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
+            f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:color={background_color}"
+        )
+        
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", video_path,
+            "-vf", vf_filter,
+            "-map", "0:v:0",
+            "-map", "0:a?",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+        ]
+        
+        if settings.FFMPEG_THREADS > 0:
+            cmd.extend(["-threads", str(settings.FFMPEG_THREADS)])
+        
+        cmd.append(output_path)
+        
+        success, stdout, stderr = await FFMPEGService.run_command(cmd)
+        
+        if success and os.path.exists(output_path):
+            return FFMPEGResult(success=True, output_path=output_path)
+        return FFMPEGResult(success=False, error=stderr)
+
+    @staticmethod
+    async def smart_crop_video(
+        video_path: str,
+        output_path: str,
+        target_ratio: str = "9:16"
+    ) -> FFMPEGResult:
+        """
+        Crop a video to a target aspect ratio.
+        
+        Args:
+            video_path: Path to input video
+            output_path: Path for output video
+            target_ratio: Target ratio string (9:16, 1:1, 16:9)
+            
+        Returns:
+            FFMPEGResult with operation status
+        """
+        ratio = FFMPEGService._parse_aspect_ratio(target_ratio)
+        width, height = await FFMPEGService.get_media_dimensions(video_path)
+        input_ratio = width / height
+        
+        if input_ratio >= ratio:
+            crop_width = int(round(height * ratio))
+            crop_height = height
+            x_offset = int(round((width - crop_width) / 2))
+            y_offset = 0
+        else:
+            crop_width = width
+            crop_height = int(round(width / ratio))
+            x_offset = 0
+            y_offset = int(round((height - crop_height) / 2))
+        
+        crop_width = FFMPEGService._even(crop_width)
+        crop_height = FFMPEGService._even(crop_height)
+        x_offset = max(0, x_offset)
+        y_offset = max(0, y_offset)
+        
+        vf_filter = f"crop={crop_width}:{crop_height}:{x_offset}:{y_offset}"
+        
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", video_path,
+            "-vf", vf_filter,
+            "-map", "0:v:0",
+            "-map", "0:a?",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+        ]
+        
+        if settings.FFMPEG_THREADS > 0:
+            cmd.extend(["-threads", str(settings.FFMPEG_THREADS)])
+        
+        cmd.append(output_path)
+        
+        success, stdout, stderr = await FFMPEGService.run_command(cmd)
+        
+        if success and os.path.exists(output_path):
+            return FFMPEGResult(success=True, output_path=output_path)
+        return FFMPEGResult(success=False, error=stderr)
     
     @staticmethod
     async def extract_frames(

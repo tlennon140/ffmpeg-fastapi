@@ -298,6 +298,104 @@ class TestVideoConcatEndpoints:
         assert output_path.exists()
 
 
+class TestVideoAudioEndpoints:
+    """Tests for video audio endpoints."""
+    
+    def test_add_audio_missing_audio(self, client, api_headers):
+        """Test adding audio without audio file."""
+        response = client.post(
+            "/api/v1/videos/audio",
+            headers=api_headers,
+            files={"video": ("test.mp4", BytesIO(b"video"), "video/mp4")}
+        )
+        assert response.status_code == 422
+    
+    def test_add_audio_success(self, client, api_headers, monkeypatch, temp_dirs):
+        """Test adding audio success path."""
+        async def fake_add_audio_to_video(*args, **kwargs):
+            output_path = kwargs["output_path"]
+            _write_file(output_path, b"video")
+            return FFMPEGResult(success=True, output_path=output_path)
+
+        async def fake_upload_file_path(*args, **kwargs):
+            return R2UploadResult(key="audio/result.mp4", url="https://cdn.example.com/audio/result.mp4")
+
+        monkeypatch.setattr(ffmpeg_service, "add_audio_to_video", fake_add_audio_to_video)
+        monkeypatch.setattr(r2_service, "upload_file_path", fake_upload_file_path)
+
+        response = client.post(
+            "/api/v1/videos/audio",
+            headers=api_headers,
+            files={
+                "video": ("test.mp4", BytesIO(b"video"), "video/mp4"),
+                "audio": ("track.mp3", BytesIO(b"audio"), "audio/mpeg"),
+            },
+            data={"replace_audio": "true", "upload": "true", "upload_location": "audio"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["r2_url"].startswith("https://")
+        output_path = Path(temp_dirs["output_dir"]) / data["filename"]
+        assert output_path.exists()
+
+
+class TestVideoTransformEndpoints:
+    """Tests for video transform endpoints."""
+    
+    def test_aspect_invalid_ratio(self, client, api_headers):
+        """Test aspect conversion with invalid ratio."""
+        response = client.post(
+            "/api/v1/videos/aspect",
+            headers=api_headers,
+            files={"video": ("test.mp4", BytesIO(b"video"), "video/mp4")},
+            data={"ratio": "4:3"}
+        )
+        assert response.status_code == 400
+    
+    def test_aspect_success(self, client, api_headers, monkeypatch, temp_dirs):
+        """Test aspect conversion success path."""
+        async def fake_convert_aspect_ratio(*args, **kwargs):
+            output_path = kwargs["output_path"]
+            _write_file(output_path, b"video")
+            return FFMPEGResult(success=True, output_path=output_path)
+
+        monkeypatch.setattr(ffmpeg_service, "convert_aspect_ratio", fake_convert_aspect_ratio)
+
+        response = client.post(
+            "/api/v1/videos/aspect",
+            headers=api_headers,
+            files={"video": ("test.mp4", BytesIO(b"video"), "video/mp4")},
+            data={"ratio": "9:16"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        output_path = Path(temp_dirs["output_dir"]) / data["filename"]
+        assert output_path.exists()
+    
+    def test_crop_vertical_success(self, client, api_headers, monkeypatch, temp_dirs):
+        """Test vertical crop success path."""
+        async def fake_smart_crop_video(*args, **kwargs):
+            output_path = kwargs["output_path"]
+            _write_file(output_path, b"video")
+            return FFMPEGResult(success=True, output_path=output_path)
+
+        monkeypatch.setattr(ffmpeg_service, "smart_crop_video", fake_smart_crop_video)
+
+        response = client.post(
+            "/api/v1/videos/crop/vertical",
+            headers=api_headers,
+            files={"video": ("test.mp4", BytesIO(b"video"), "video/mp4")},
+            data={"ratio": "9:16"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        output_path = Path(temp_dirs["output_dir"]) / data["filename"]
+        assert output_path.exists()
+
+
 class TestStorageEndpoints:
     """Tests for storage endpoints."""
     

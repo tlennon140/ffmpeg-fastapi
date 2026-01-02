@@ -103,6 +103,9 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         "/api/v1/frames/extract",
         "/api/v1/frames/last",
         "/api/v1/storage/r2/upload",
+        "/api/v1/videos/audio",
+        "/api/v1/videos/aspect",
+        "/api/v1/videos/crop/vertical",
     }
     UPLOAD_PATH_PREFIXES = {"/api/v1/storage/r2/upload/output/"}
     
