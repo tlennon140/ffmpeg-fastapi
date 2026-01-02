@@ -346,7 +346,25 @@ class FFMPEGService:
     @staticmethod
     def _escape_drawtext_text(value: str) -> str:
         """Escape drawtext values for FFmpeg filter syntax."""
-        return value.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+        escaped = []
+        for ch in value:
+            if ch == "\\":
+                escaped.append("\\\\")
+            elif ch == "\n":
+                escaped.append("\\n")
+            elif ch == "\r":
+                continue
+            elif ch == ":":
+                escaped.append("\\:")
+            elif ch == "'":
+                escaped.append("\\'")
+            elif ch == ",":
+                escaped.append("\\,")
+            elif ch == "%":
+                escaped.append("\\%")
+            else:
+                escaped.append(ch)
+        return "".join(escaped)
 
     @staticmethod
     def _find_font_file(font_name: str) -> Optional[str]:
