@@ -5,7 +5,7 @@ Storage endpoints for R2 uploads.
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 
 from app.config import settings
@@ -24,11 +24,20 @@ class R2UploadResponse(BaseModel):
     message: str
 
 
+class R2PresignedUrlResponse(BaseModel):
+    """Response model for R2 presigned URL."""
+    success: bool
+    key: str
+    url: str
+    expires_in: int
+    message: str
+
+
 @router.post(
     "/storage/r2/upload",
     response_model=R2UploadResponse,
     summary="Upload file to R2",
-    description="Upload a file to Cloudflare R2 and return a public URL."
+    description="Upload a file to Cloudflare R2 and return a public or presigned URL."
 )
 async def upload_to_r2(
     file: UploadFile = File(..., description="File to upload"),
@@ -64,11 +73,53 @@ async def upload_to_r2(
             cleanup_file(input_path)
 
 
+@router.get(
+    "/storage/r2/presigned",
+    response_model=R2PresignedUrlResponse,
+    summary="Generate a presigned R2 URL",
+    description="Generate a presigned URL for an existing R2 object."
+)
+async def get_presigned_r2_url(
+    key: str = Query(..., description="R2 object key"),
+    expires_in: Optional[int] = Query(
+        default=None,
+        ge=60,
+        le=86400,
+        description="Expiration time in seconds (default from config)"
+    ),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Generate a presigned URL for an existing R2 object.
+    """
+    normalized_key = key.strip().lstrip("/")
+    if not normalized_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Key is required"
+        )
+    ext = os.path.splitext(normalized_key)[1].lower()
+    if ext and ext not in settings.r2_allowed_extensions_list:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type '{ext}' not allowed"
+        )
+    expires_in_value = expires_in or settings.R2_PRESIGNED_URL_EXPIRES
+    url = r2_service.generate_presigned_url(normalized_key, expires_in=expires_in_value)
+    return R2PresignedUrlResponse(
+        success=True,
+        key=normalized_key,
+        url=url,
+        expires_in=expires_in_value,
+        message="Presigned URL generated successfully"
+    )
+
+
 @router.post(
     "/storage/r2/upload/output/{filename}",
     response_model=R2UploadResponse,
     summary="Upload output file to R2",
-    description="Upload a processed output file to Cloudflare R2 and return a public URL."
+    description="Upload a processed output file to Cloudflare R2 and return a public or presigned URL."
 )
 async def upload_output_to_r2(
     filename: str,

@@ -5,6 +5,7 @@ Cloudflare R2 storage helpers.
 import asyncio
 from dataclasses import dataclass
 import mimetypes
+from typing import Optional
 import uuid
 
 import boto3
@@ -83,6 +84,25 @@ class R2Service:
                 )
             base_url = f"https://{settings.R2_BUCKET}.{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
         return f"{base_url.rstrip('/')}/{key.lstrip('/')}"
+
+    def generate_presigned_url(self, key: str, expires_in: Optional[int] = None) -> str:
+        client = self._client()
+        try:
+            return client.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={"Bucket": settings.R2_BUCKET, "Key": key},
+                ExpiresIn=expires_in or settings.R2_PRESIGNED_URL_EXPIRES,
+            )
+        except (BotoCoreError, ClientError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to generate presigned URL: {exc}"
+            ) from exc
+
+    def build_access_url(self, key: str) -> str:
+        if settings.R2_PUBLIC_BASE_URL:
+            return self.build_public_url(key)
+        return self.generate_presigned_url(key)
     
     async def upload_file_path(
         self,
@@ -128,7 +148,7 @@ class R2Service:
                 detail=f"Failed to upload to R2: {exc}"
             ) from exc
         
-        return R2UploadResult(key=key, url=self.build_public_url(key))
+        return R2UploadResult(key=key, url=self.build_access_url(key))
 
 
 r2_service = R2Service()

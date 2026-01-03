@@ -124,6 +124,10 @@ class Settings(BaseSettings):
         default=None,
         description="Public base URL for R2 objects (e.g. https://cdn.example.com)"
     )
+    R2_PRESIGNED_URL_EXPIRES: int = Field(
+        default=3600,
+        description="Presigned URL expiration in seconds"
+    )
     R2_KEY_PREFIX: str = Field(
         default="",
         description="Optional prefix for R2 object keys"

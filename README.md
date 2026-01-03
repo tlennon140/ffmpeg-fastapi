@@ -97,6 +97,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/api/v1/storage/r2/upload` | POST | Yes | Upload file to R2 |
+| `/api/v1/storage/r2/presigned` | GET | Yes | Generate presigned R2 URL |
 | `/api/v1/storage/r2/upload/output/{filename}` | POST | Yes | Upload output file to R2 |
 
 ## Usage Examples
@@ -302,6 +303,7 @@ All settings can be configured via environment variables:
 | `R2_REGION` | `auto` | Cloudflare R2 region |
 | `R2_ENDPOINT_URL` | `None` | Optional custom R2 endpoint URL |
 | `R2_PUBLIC_BASE_URL` | `None` | Public base URL for R2 objects |
+| `R2_PRESIGNED_URL_EXPIRES` | `3600` | Presigned URL expiration (seconds) |
 | `R2_KEY_PREFIX` | `` | Optional prefix for R2 object keys |
 | `R2_ALLOWED_EXTENSIONS` | `.mp4,...,.zip` | Allowed extensions for R2 uploads |
 | `CAPTION_FONT` | `Arial` | Caption font name (Arial, Raleway, Montserrat, Roboto) |
@@ -311,7 +313,7 @@ All settings can be configured via environment variables:
 
 - Set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET` before using storage endpoints.
 - Set `R2_PUBLIC_BASE_URL` to your public bucket domain or custom CDN domain.
-- If `R2_PUBLIC_BASE_URL` is not set, URLs default to `https://{bucket}.{account_id}.r2.cloudflarestorage.com/{key}`.
+- If `R2_PUBLIC_BASE_URL` is not set, upload responses return presigned URLs (expires after `R2_PRESIGNED_URL_EXPIRES`).
 
 ### R2 Environment Variables
 
@@ -328,6 +330,7 @@ R2_BUCKET=your-bucket
 R2_PUBLIC_BASE_URL=https://your-public-domain
 
 # Optional
+R2_PRESIGNED_URL_EXPIRES=3600
 R2_REGION=auto
 R2_ENDPOINT_URL=
 R2_KEY_PREFIX=
