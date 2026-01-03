@@ -22,9 +22,9 @@ from app.utils.files import cleanup_file, generate_temp_path
 logger = logging.getLogger(__name__)
 
 DEFAULT_CAPTION_FONT = "Arial"
-DEFAULT_CAPTION_FONT_RATIO = 0.014
+DEFAULT_CAPTION_FONT_RATIO = 0.016
 DEFAULT_CAPTION_MIN_FONT_SIZE = 8
-DEFAULT_CAPTION_MAX_FONT_SIZE = 28
+DEFAULT_CAPTION_MAX_FONT_SIZE = 32
 DEFAULT_CAPTION_BORDER_RATIO = 0.12
 DEFAULT_CAPTION_MIN_BORDER = 2
 DEFAULT_CAPTION_MAX_BORDER = 10
@@ -724,9 +724,9 @@ class FFMPEGService:
                 margin_v,
             )
             
-            resolved_bg_color = bg_color
-            if resolved_bg_color is None:
-                resolved_bg_color = f"black@{DEFAULT_CAPTION_BOX_ALPHA}"
+            resolved_bg_color = None
+            if bg_color is not None:
+                resolved_bg_color = bg_color.strip()
             
             primary_color = FFMPEGService._ass_color_with_alpha(
                 font_color,

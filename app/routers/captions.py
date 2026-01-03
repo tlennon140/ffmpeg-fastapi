@@ -43,8 +43,8 @@ class VideoCaptionRequest(BaseModel):
     )
     font_color: str = Field(default="white", description="Font color")
     bg_color: Optional[str] = Field(
-        default="black@0.65",
-        description="Background color with opacity"
+        default=None,
+        description="Optional background color with opacity"
     )
     position: Literal["top", "center", "bottom"] = Field(
         default="bottom",
@@ -97,7 +97,7 @@ async def add_video_captions(
     ),
     font_size: Optional[int] = Form(default=None, ge=8, le=72),
     font_color: str = Form(default="white"),
-    bg_color: Optional[str] = Form(default="black@0.65"),
+    bg_color: Optional[str] = Form(default=None),
     position: str = Form(default="bottom"),
     upload: bool = Form(default=False, description="Upload result to R2"),
     upload_location: Optional[str] = Form(
