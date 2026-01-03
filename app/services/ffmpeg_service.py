@@ -735,7 +735,7 @@ class FFMPEGService:
             outline_color = ASS_OUTLINE_FALLBACK
             border_style = 1
             outline_size = border_width
-            back_color = "&H00000000"
+            back_color = "&HFF000000"  # Fully transparent (no background)
             if resolved_bg_color:
                 border_style = 3
                 outline_size = box_padding
