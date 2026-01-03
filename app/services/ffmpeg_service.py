@@ -684,6 +684,17 @@ class FFMPEGService:
         """
         subtitle_path = generate_temp_path("captions_", ".ass")
         try:
+            logger.info(
+                "Captioning video: input=%s output=%s captions=%d font_size=%s "
+                "font_color=%s bg_color=%s position=%s",
+                video_path,
+                output_path,
+                len(captions),
+                font_size,
+                font_color,
+                bg_color,
+                position,
+            )
             width, height = await FFMPEGService.get_media_dimensions(video_path)
             resolved_font_size = FFMPEGService._resolve_font_size_from_height(height, font_size)
             border_width = FFMPEGService._resolve_border_width(resolved_font_size)
@@ -702,6 +713,16 @@ class FFMPEGService:
             else:  # bottom
                 alignment = 2
                 margin_v = bottom_margin
+
+            logger.info(
+                "Caption layout: size=%dx%d font_size=%d max_chars=%d alignment=%d margin_v=%d",
+                width,
+                height,
+                resolved_font_size,
+                max_chars,
+                alignment,
+                margin_v,
+            )
             
             resolved_bg_color = bg_color
             if resolved_bg_color is None:
@@ -727,6 +748,12 @@ class FFMPEGService:
             font_file = FFMPEGService._find_font_file(font_name)
             if font_file:
                 font_name = Path(font_file).stem
+
+            logger.info(
+                "Caption font resolved: name=%s file=%s",
+                font_name,
+                font_file or "none",
+            )
             
             ass_lines = [
                 "[Script Info]",
@@ -758,14 +785,19 @@ class FFMPEGService:
                     "MarginV,Effect,Text"
                 ),
             ]
-            
+
+            dialog_count = 0
+            skipped_empty = 0
+            skipped_time = 0
             for caption in captions:
                 text = FFMPEGService._wrap_caption_text(str(caption["text"]), max_chars)
                 if not text:
+                    skipped_empty += 1
                     continue
                 start = float(caption["start"])
                 end = float(caption["end"])
                 if end <= start:
+                    skipped_time += 1
                     continue
                 ass_text = FFMPEGService._ass_escape_text(text)
                 ass_lines.append(
@@ -775,14 +807,28 @@ class FFMPEGService:
                     "Default,,0,0,0,,"
                     f"{ass_text}"
                 )
+                dialog_count += 1
             
             with open(subtitle_path, "w", encoding="utf-8") as subtitle_file:
                 subtitle_file.write("\n".join(ass_lines) + "\n")
+
+            logger.info(
+                "ASS captions written: file=%s dialogues=%d skipped_empty=%d skipped_time=%d",
+                subtitle_path,
+                dialog_count,
+                skipped_empty,
+                skipped_time,
+            )
             
             subtitle_filter = f"subtitles=filename='{subtitle_path}':charenc=UTF-8"
             fonts_dir = settings.CAPTION_FONT_FOLDER
             if fonts_dir and os.path.isdir(fonts_dir):
                 subtitle_filter += f":fontsdir='{os.path.abspath(fonts_dir)}'"
+
+            logger.info(
+                "Subtitle filter: %s",
+                subtitle_filter,
+            )
             
             cmd = [
                 "ffmpeg",
@@ -797,13 +843,18 @@ class FFMPEGService:
                 cmd.extend(["-threads", str(settings.FFMPEG_THREADS)])
             
             success, stdout, stderr = await FFMPEGService.run_command(cmd)
-            
+
             if success and os.path.exists(output_path):
+                logger.info("Captioning complete: output=%s", output_path)
                 return FFMPEGResult(success=True, output_path=output_path)
+
+            stderr_summary = (stderr or "").strip()
+            if stderr_summary:
+                logger.error("FFMPEG captioning failed: %s", stderr_summary[:2000])
             return FFMPEGResult(success=False, error=stderr)
                 
         except Exception as e:
-            logger.error(f"Error adding captions: {e}")
+            logger.exception("Error adding captions")
             return FFMPEGResult(success=False, error=str(e))
         finally:
             cleanup_file(subtitle_path)

@@ -136,6 +136,22 @@ async def add_video_captions(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one caption is required"
         )
+
+    min_start = min(c.start for c in captions)
+    max_end = max(c.end for c in captions)
+    logger.info(
+        "Video captions request: filename=%s captions=%d range=%.2f-%.2f "
+        "font_size=%s font_color=%s bg_color=%s position=%s upload=%s",
+        video.filename,
+        len(captions),
+        min_start,
+        max_end,
+        font_size,
+        font_color,
+        bg_color,
+        position,
+        upload,
+    )
     
     # Validate position
     if position not in ["top", "center", "bottom"]:
@@ -153,6 +169,14 @@ async def add_video_captions(
     
     # Generate output path
     output_path = generate_output_path("captioned_", ext)
+
+    input_size = os.path.getsize(input_path) if os.path.exists(input_path) else 0
+    logger.info(
+        "Caption source saved: input=%s size_bytes=%d output=%s",
+        input_path,
+        input_size,
+        output_path,
+    )
     
     try:
         # Process video
@@ -167,6 +191,12 @@ async def add_video_captions(
         )
         
         if not result.success:
+            logger.error(
+                "Captioning failed: input=%s output=%s error=%s",
+                input_path,
+                output_path,
+                result.error,
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to add captions: {result.error}"
@@ -191,6 +221,15 @@ async def add_video_captions(
             r2_url=r2_url
         )
         
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Unexpected error while captioning video: input=%s output=%s",
+            input_path,
+            output_path,
+        )
+        raise
     finally:
         # Cleanup input file
         cleanup_file(input_path)
