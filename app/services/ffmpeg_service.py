@@ -22,12 +22,12 @@ from app.utils.files import cleanup_file, generate_temp_path
 logger = logging.getLogger(__name__)
 
 DEFAULT_CAPTION_FONT = "Arial"
-DEFAULT_CAPTION_FONT_RATIO = 0.016
-DEFAULT_CAPTION_MIN_FONT_SIZE = 8
-DEFAULT_CAPTION_MAX_FONT_SIZE = 32
-DEFAULT_CAPTION_BORDER_RATIO = 0.12
-DEFAULT_CAPTION_MIN_BORDER = 2
-DEFAULT_CAPTION_MAX_BORDER = 10
+DEFAULT_CAPTION_FONT_RATIO = 0.035
+DEFAULT_CAPTION_MIN_FONT_SIZE = 16
+DEFAULT_CAPTION_MAX_FONT_SIZE = 64
+DEFAULT_CAPTION_BORDER_RATIO = 0.10
+DEFAULT_CAPTION_MIN_BORDER = 3
+DEFAULT_CAPTION_MAX_BORDER = 6
 DEFAULT_CAPTION_MAX_WIDTH_RATIO = 0.72
 DEFAULT_CAPTION_LINE_HEIGHT = 1.2
 DEFAULT_CAPTION_SIDE_MARGIN_RATIO = 0.06
@@ -374,13 +374,18 @@ class FFMPEGService:
 
     @staticmethod
     def _ass_color_with_alpha(color: str, fallback: str) -> str:
-        """Convert color with optional alpha to ASS format (&HAABBGGRR)."""
+        """Convert color with optional alpha/opacity to ASS format (&HAABBGGRR).
+
+        ASS alpha is inverted: 0=fully opaque, 255=fully transparent.
+        The input alpha is treated as opacity (0=transparent, 1=opaque).
+        """
         base_color, alpha = FFMPEGService._split_color_alpha(color)
         color_value = FFMPEGService._ass_color(base_color, fallback)
         if alpha is None:
             return color_value
         alpha = max(0.0, min(alpha, 1.0))
-        alpha_byte = int(round(alpha * 255))
+        # Invert alpha: opacity 1.0 -> ASS alpha 0x00, opacity 0.0 -> ASS alpha 0xFF
+        alpha_byte = int(round((1.0 - alpha) * 255))
         return f"&H{alpha_byte:02X}{color_value[4:]}"
 
     @staticmethod
@@ -753,6 +758,15 @@ class FFMPEGService:
                 "Caption font resolved: name=%s file=%s",
                 font_name,
                 font_file or "none",
+            )
+
+            logger.info(
+                "Caption ASS style: border_style=%d outline_size=%d outline_color=%s back_color=%s primary_color=%s",
+                border_style,
+                outline_size,
+                outline_color,
+                back_color,
+                primary_color,
             )
             
             ass_lines = [
