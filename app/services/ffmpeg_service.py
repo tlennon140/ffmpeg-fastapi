@@ -373,6 +373,25 @@ class FFMPEGService:
         return base.strip(), FFMPEGService._parse_alpha(alpha_value)
 
     @staticmethod
+    def _is_transparent_color(color: str) -> bool:
+        """Return True if a color string represents full transparency."""
+        if not color:
+            return False
+        value = color.strip().lower()
+        if not value:
+            return False
+        if value in {"transparent", "none"}:
+            return True
+        _, alpha = FFMPEGService._split_color_alpha(value)
+        if alpha is not None and alpha <= 0.0:
+            return True
+        if value.startswith("0x") and len(value) == 10:
+            hex_value = value[2:]
+            if all(c in "0123456789abcdef" for c in hex_value):
+                return hex_value[:2] == "00"
+        return False
+
+    @staticmethod
     def _ass_color_with_alpha(color: str, fallback: str) -> str:
         """Convert color with optional alpha/opacity to ASS format (&HAABBGGRR).
 
@@ -731,7 +750,9 @@ class FFMPEGService:
             
             resolved_bg_color = None
             if bg_color is not None:
-                resolved_bg_color = bg_color.strip()
+                stripped_bg_color = bg_color.strip()
+                if stripped_bg_color and not FFMPEGService._is_transparent_color(stripped_bg_color):
+                    resolved_bg_color = stripped_bg_color
             
             primary_color = FFMPEGService._ass_color_with_alpha(
                 font_color,
@@ -923,7 +944,9 @@ class FFMPEGService:
         escaped_text = FFMPEGService._escape_drawtext_text(text)
         box_flags = "box=0"
         if bg_color:
-            box_flags = f"box=1:boxcolor={bg_color}:boxborderw=10"
+            stripped_bg_color = bg_color.strip()
+            if stripped_bg_color and not FFMPEGService._is_transparent_color(stripped_bg_color):
+                box_flags = f"box=1:boxcolor={stripped_bg_color}:boxborderw=10"
         
         # Build drawtext filter
         drawtext_filter = (
