@@ -342,7 +342,7 @@ R2_ALLOWED_EXTENSIONS=.mp4,.avi,.mov,.mkv,.webm,.flv,.wmv,.jpg,.jpeg,.png,.gif,.
 By default, captions use a TikTok-style look:
 
 - Arial font (via `CAPTION_FONT` and `CAPTION_FONT_FOLDER`)
-- Auto-sized text (about 1.4% of media height when `font_size` is omitted)
+- Auto-sized text (about 7% of media height when `font_size` is omitted)
 - Max width ~72% of video width, wrapped to 2 lines
 - Line height ~1.2x
 - Safe margins: ~6% left/right, ~12% bottom

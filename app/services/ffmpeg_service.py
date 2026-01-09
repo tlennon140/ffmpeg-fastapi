@@ -22,9 +22,9 @@ from app.utils.files import cleanup_file, generate_temp_path
 logger = logging.getLogger(__name__)
 
 DEFAULT_CAPTION_FONT = "Arial"
-DEFAULT_CAPTION_FONT_RATIO = 0.035
-DEFAULT_CAPTION_MIN_FONT_SIZE = 16
-DEFAULT_CAPTION_MAX_FONT_SIZE = 64
+DEFAULT_CAPTION_FONT_RATIO = 0.07
+DEFAULT_CAPTION_MIN_FONT_SIZE = 32
+DEFAULT_CAPTION_MAX_FONT_SIZE = 128
 DEFAULT_CAPTION_BORDER_RATIO = 0.10
 DEFAULT_CAPTION_MIN_BORDER = 3
 DEFAULT_CAPTION_MAX_BORDER = 6
@@ -253,7 +253,7 @@ class FFMPEGService:
         try:
             _, height = await FFMPEGService.get_media_dimensions(media_path)
         except HTTPException:
-            return 24
+            return 48
         
         scaled_size = int(round(height * DEFAULT_CAPTION_FONT_RATIO))
         return max(

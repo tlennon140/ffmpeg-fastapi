@@ -38,7 +38,7 @@ class VideoCaptionRequest(BaseModel):
     font_size: Optional[int] = Field(
         default=None,
         ge=8,
-        le=72,
+        le=128,
         description="Font size in pixels (auto-sized if omitted)"
     )
     font_color: str = Field(default="white", description="Font color")
@@ -58,7 +58,7 @@ class ImageCaptionRequest(BaseModel):
     font_size: Optional[int] = Field(
         default=None,
         ge=8,
-        le=72,
+        le=128,
         description="Font size in pixels (auto-sized if omitted)"
     )
     font_color: str = Field(default="white", description="Font color")
@@ -95,7 +95,7 @@ async def add_video_captions(
         ...,
         description='JSON array of captions: [{"text": "Hello", "start": 0, "end": 2}]'
     ),
-    font_size: Optional[int] = Form(default=None, ge=8, le=72),
+    font_size: Optional[int] = Form(default=None, ge=8, le=128),
     font_color: str = Form(default="white"),
     bg_color: Optional[str] = Form(default=None),
     position: str = Form(default="bottom"),
@@ -244,7 +244,7 @@ async def add_video_captions(
 async def add_image_caption(
     image: UploadFile = File(..., description="Image file to caption"),
     text: str = Form(..., min_length=1, max_length=500, description="Caption text"),
-    font_size: Optional[int] = Form(default=None, ge=8, le=72),
+    font_size: Optional[int] = Form(default=None, ge=8, le=128),
     font_color: str = Form(default="white"),
     bg_color: Optional[str] = Form(default=None),
     position: str = Form(default="bottom"),
