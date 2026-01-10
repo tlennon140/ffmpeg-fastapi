@@ -266,6 +266,75 @@ async def download_video_to_r2(
 
 
 @router.post(
+    "/videos/convert/mov",
+    response_model=VideoTransformResponse,
+    summary="Convert MOV to MP4",
+    description="Upload a MOV file and convert it to MP4 for consistent processing."
+)
+async def convert_mov_to_mp4(
+    video: UploadFile = File(..., description="MOV video file"),
+    upload: bool = Form(default=False, description="Upload result to R2"),
+    upload_location: Optional[str] = Form(
+        default=None,
+        description="Optional key prefix within the bucket"
+    ),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Convert a MOV file to MP4.
+    """
+    video_path = None
+    output_path = None
+    
+    try:
+        video_path, video_ext = await save_upload_file(
+            video,
+            settings.allowed_video_extensions_list,
+            prefix="mov_convert_"
+        )
+        if video_ext != ".mov":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only .mov files are supported for this endpoint"
+            )
+        
+        output_path = generate_output_path("mov_to_mp4_", ".mp4")
+        
+        result = await ffmpeg_service.convert_mov_to_mp4(
+            video_path=video_path,
+            output_path=output_path
+        )
+        
+        if not result.success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to convert MOV to MP4: {result.error}"
+            )
+        
+        r2_key = None
+        r2_url = None
+        if upload:
+            upload_result = await r2_service.upload_file_path(
+                file_path=output_path,
+                filename=get_output_filename(output_path),
+                key_prefix=upload_location or ""
+            )
+            r2_key = upload_result.key
+            r2_url = upload_result.url
+        
+        return VideoTransformResponse(
+            success=True,
+            filename=get_output_filename(output_path),
+            message="MOV converted to MP4 successfully",
+            r2_key=r2_key,
+            r2_url=r2_url
+        )
+    
+    finally:
+        cleanup_files(*(path for path in [video_path] if path))
+
+
+@router.post(
     "/videos/audio",
     response_model=VideoAudioResponse,
     summary="Add or replace audio on a video",

@@ -105,6 +105,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         "/api/v1/storage/r2/upload",
         "/api/v1/videos/audio",
         "/api/v1/videos/aspect",
+        "/api/v1/videos/convert/mov",
         "/api/v1/videos/crop/vertical",
         "/api/v1/videos/download",
         "/api/v1/videos/watermark",

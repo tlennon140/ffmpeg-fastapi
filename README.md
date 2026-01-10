@@ -85,6 +85,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 |----------|--------|------|-------------|
 | `/api/v1/videos/concat` | POST | Yes | Concatenate video segments from URLs |
 | `/api/v1/videos/download` | POST | Yes | Download video from URL to R2 |
+| `/api/v1/videos/convert/mov` | POST | Yes | Convert MOV to MP4 |
 | `/api/v1/videos/audio` | POST | Yes | Add or replace audio on a video |
 | `/api/v1/videos/aspect` | POST | Yes | Convert video aspect ratio (pad) |
 | `/api/v1/videos/crop/vertical` | POST | Yes | Smart crop for vertical video |
@@ -146,6 +147,14 @@ curl -X POST "http://localhost:8000/api/v1/videos/download" \
     "url": "https://example.com/video.mp4",
     "upload_location": "imports"
   }'
+```
+
+### Convert MOV to MP4
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/videos/convert/mov" \
+  -H "X-API-Key: your-api-key" \
+  -F "video=@clip.mov"
 ```
 
 ### Upload to R2

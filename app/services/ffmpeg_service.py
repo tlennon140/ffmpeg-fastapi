@@ -1321,6 +1321,50 @@ class FFMPEGService:
         return FFMPEGResult(success=False, error=stderr)
 
     @staticmethod
+    async def convert_mov_to_mp4(
+        video_path: str,
+        output_path: str
+    ) -> FFMPEGResult:
+        """
+        Convert a MOV file to MP4 for more consistent downstream processing.
+        
+        Args:
+            video_path: Path to input MOV
+            output_path: Path for output MP4
+            
+        Returns:
+            FFMPEGResult with operation status
+        """
+        vf_filter = "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1"
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", video_path,
+            "-vf", vf_filter,
+            "-map", "0:v:0",
+            "-map", "0:a?",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-ac", "2",
+            "-ar", "44100",
+            "-movflags", "+faststart",
+        ]
+        
+        if settings.FFMPEG_THREADS > 0:
+            cmd.extend(["-threads", str(settings.FFMPEG_THREADS)])
+        
+        cmd.append(output_path)
+        
+        success, stdout, stderr = await FFMPEGService.run_command(cmd)
+        
+        if success and os.path.exists(output_path):
+            return FFMPEGResult(success=True, output_path=output_path)
+        return FFMPEGResult(success=False, error=stderr)
+
+    @staticmethod
     async def smart_crop_video(
         video_path: str,
         output_path: str,
