@@ -299,6 +299,7 @@ class FFMPEGService:
         cleaned = " ".join(text.split())
         if not cleaned:
             return ""
+        cleaned = FFMPEGService._sentence_case_caption(cleaned)
         
         lines = textwrap.wrap(
             cleaned,
@@ -312,6 +313,15 @@ class FFMPEGService:
         remainder = " ".join(lines[1:])
         last_line = textwrap.shorten(remainder, width=max_chars, placeholder="...")
         return "\n".join([lines[0], last_line])
+
+    @staticmethod
+    def _sentence_case_caption(text: str) -> str:
+        """Lowercase caption text and only capitalize the first alpha character."""
+        lowered = text.lower()
+        for index, char in enumerate(lowered):
+            if char.isalpha():
+                return f"{lowered[:index]}{char.upper()}{lowered[index + 1:]}"
+        return lowered
 
     @staticmethod
     def _ass_color(color: str, fallback: str) -> str:
