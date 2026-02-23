@@ -1536,6 +1536,118 @@ class FFMPEGService:
             return FFMPEGResult(success=False, error=stderr)
     
     @staticmethod
+    async def overlay_video_on_video(
+        base_path: str,
+        overlay_path: str,
+        output_path: str,
+        position: str = "top-right",
+        scale_ratio: float = 0.3,
+        opacity: float = 1.0,
+        x_offset: int = 0,
+        y_offset: int = 0,
+        time_offset: float = 0.0,
+        audio_mode: str = "base",
+    ) -> FFMPEGResult:
+        """
+        Overlay one video on top of another (picture-in-picture).
+
+        Args:
+            base_path: Path to the base/background video
+            overlay_path: Path to the overlay video
+            output_path: Path for output video
+            position: Overlay position (top-left, top-right, bottom-left, bottom-right, center, custom)
+            scale_ratio: Overlay width as a fraction of base video width (0.05–0.9)
+            opacity: Overlay opacity (0.0–1.0)
+            x_offset: X pixel position when position='custom'
+            y_offset: Y pixel position when position='custom'
+            time_offset: Seconds into the base video at which the overlay appears (0 = from start)
+            audio_mode: 'base' (keep base audio only), 'overlay' (keep overlay audio only), 'mix'
+
+        Returns:
+            FFMPEGResult with operation status
+        """
+        width, height = await FFMPEGService.get_media_dimensions(base_path)
+        margin_x = int(round(width * 0.04))
+        margin_y = int(round(height * 0.04))
+
+        position_map = {
+            "top-left":     (f"{margin_x}", f"{margin_y}"),
+            "top-right":    (f"W-w-{margin_x}", f"{margin_y}"),
+            "bottom-left":  (f"{margin_x}", f"H-h-{margin_y}"),
+            "bottom-right": (f"W-w-{margin_x}", f"H-h-{margin_y}"),
+            "center":       ("(W-w)/2", "(H-h)/2"),
+            "custom":       (str(x_offset), str(y_offset)),
+        }
+        x_expr, y_expr = position_map.get(position, position_map["top-right"])
+
+        scale_ratio = max(0.05, min(scale_ratio, 0.9))
+        opacity = max(0.0, min(opacity, 1.0))
+
+        enable_expr = f"gte(t,{time_offset})" if time_offset > 0 else ""
+        overlay_filter = f"overlay={x_expr}:{y_expr}"
+        if enable_expr:
+            overlay_filter += f":enable='{enable_expr}'"
+
+        base_has_audio = await FFMPEGService._has_audio_stream(base_path)
+        overlay_has_audio = await FFMPEGService._has_audio_stream(overlay_path)
+
+        # Build video portion of filter_complex
+        if opacity < 1.0:
+            video_filter = (
+                f"[1:v]scale=iw*{scale_ratio}:-2,"
+                f"format=rgba,colorchannelmixer=aa={opacity}[ov];"
+                f"[0:v][ov]{overlay_filter}[vout]"
+            )
+        else:
+            video_filter = (
+                f"[1:v]scale=iw*{scale_ratio}:-2[ov];"
+                f"[0:v][ov]{overlay_filter}[vout]"
+            )
+
+        # Build audio portion and determine audio map args
+        if audio_mode == "mix" and base_has_audio and overlay_has_audio:
+            filter_complex = video_filter + ";[0:a][1:a]amix=inputs=2:duration=first[aout]"
+            audio_maps = ["-map", "[aout]"]
+        elif audio_mode == "overlay" and overlay_has_audio:
+            filter_complex = video_filter
+            audio_maps = ["-map", "1:a?"]
+        elif base_has_audio:
+            filter_complex = video_filter
+            audio_maps = ["-map", "0:a?"]
+        else:
+            filter_complex = video_filter
+            audio_maps = []
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", base_path,
+            "-i", overlay_path,
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            *audio_maps,
+        ]
+
+        cmd.extend([
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+        ])
+
+        if settings.FFMPEG_THREADS > 0:
+            cmd.extend(["-threads", str(settings.FFMPEG_THREADS)])
+
+        cmd.append(output_path)
+
+        success, stdout, stderr = await FFMPEGService.run_command(cmd)
+
+        if success and os.path.exists(output_path):
+            return FFMPEGResult(success=True, output_path=output_path)
+        return FFMPEGResult(success=False, error=stderr)
+
+    @staticmethod
     def _format_srt_time(seconds: float) -> str:
         """
         Format seconds as SRT timestamp.

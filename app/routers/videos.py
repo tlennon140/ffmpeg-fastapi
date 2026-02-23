@@ -725,6 +725,115 @@ async def append_intro_outro(
 
 
 @router.post(
+    "/videos/overlay",
+    response_model=VideoTransformResponse,
+    summary="Overlay video on video (picture-in-picture)",
+    description="Layer an overlay video on top of a base video with control over position, size, opacity, timing, and audio."
+)
+async def overlay_video(
+    base: UploadFile = File(..., description="Base/background video file"),
+    overlay: UploadFile = File(..., description="Overlay video file"),
+    position: str = Form(default="top-right", description="Overlay position: top-left, top-right, bottom-left, bottom-right, center, custom"),
+    scale_ratio: float = Form(default=0.3, description="Overlay width as a fraction of base video width (0.05–0.9)"),
+    opacity: float = Form(default=1.0, description="Overlay opacity (0.0–1.0)"),
+    x_offset: int = Form(default=0, description="X pixel position when position='custom'"),
+    y_offset: int = Form(default=0, description="Y pixel position when position='custom'"),
+    time_offset: float = Form(default=0.0, description="Seconds into the base video at which the overlay appears"),
+    audio_mode: str = Form(default="base", description="Audio output: 'base', 'overlay', or 'mix'"),
+    upload: bool = Form(default=False, description="Upload result to R2"),
+    upload_location: Optional[str] = Form(default=None, description="Optional key prefix within the bucket"),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Overlay one video on top of another (picture-in-picture).
+    """
+    valid_positions = {"top-left", "top-right", "bottom-left", "bottom-right", "center", "custom"}
+    if position not in valid_positions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"position must be one of: {', '.join(sorted(valid_positions))}"
+        )
+    if not (0.05 <= scale_ratio <= 0.9):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="scale_ratio must be between 0.05 and 0.9"
+        )
+    if not (0.0 <= opacity <= 1.0):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="opacity must be between 0.0 and 1.0"
+        )
+    if time_offset < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="time_offset must be >= 0"
+        )
+    if audio_mode not in {"base", "overlay", "mix"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="audio_mode must be 'base', 'overlay', or 'mix'"
+        )
+
+    base_path = None
+    overlay_path = None
+    output_path = None
+
+    try:
+        base_path, base_ext = await save_upload_file(
+            base,
+            settings.allowed_video_extensions_list,
+            prefix="overlay_base_"
+        )
+        overlay_path, _ = await save_upload_file(
+            overlay,
+            settings.allowed_video_extensions_list,
+            prefix="overlay_top_"
+        )
+        output_path = generate_output_path("overlay_", base_ext)
+
+        result = await ffmpeg_service.overlay_video_on_video(
+            base_path=base_path,
+            overlay_path=overlay_path,
+            output_path=output_path,
+            position=position,
+            scale_ratio=scale_ratio,
+            opacity=opacity,
+            x_offset=x_offset,
+            y_offset=y_offset,
+            time_offset=time_offset,
+            audio_mode=audio_mode,
+        )
+
+        if not result.success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to overlay video: {result.error}"
+            )
+
+        r2_key = None
+        r2_url = None
+        if upload:
+            upload_result = await r2_service.upload_file_path(
+                file_path=output_path,
+                filename=get_output_filename(output_path),
+                key_prefix=upload_location or ""
+            )
+            r2_key = upload_result.key
+            r2_url = upload_result.url
+
+        return VideoTransformResponse(
+            success=True,
+            filename=get_output_filename(output_path),
+            message="Video overlay applied successfully",
+            r2_key=r2_key,
+            r2_url=r2_url
+        )
+
+    finally:
+        cleanup_files(*(path for path in [base_path, overlay_path] if path))
+
+
+@router.post(
     "/videos/audio/extract",
     response_model=VideoExtractAudioResponse,
     summary="Extract audio from a video",
